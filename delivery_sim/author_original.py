@@ -77,16 +77,23 @@ def run_author_planners(scene: str, grid: int, instance: int, distro: str,
         'test -x ./bin/Runner || { echo "缺少 bin/Runner：请先在 Ubuntu 编译作者项目" >&2; exit 2; }; '
         'test -f "$2" || { echo "缺少作者场景样例：$2" >&2; exit 2; }; '
         'test -f "$3" || { echo "缺少作者预测数据：$3" >&2; exit 2; }; '
-        'mkdir -p data/Results; git rev-parse HEAD; shift 3; "$@"'
+        'test -f "$4" || { echo "缺少作者目标坐标：$4" >&2; exit 2; }; '
+        'test -d "$5" || { echo "缺少作者预测路径目录：$5" >&2; exit 2; }; '
+        'test -f "$6" || { echo "缺少作者障碍数据：$6" >&2; exit 2; }; '
+        'mkdir -p data/Results; git rev-parse HEAD; shift 6; "$@"'
     )
     instance_file = f"data/Instances/{scene}CarNrGrids{grid}/{instance}.txt"
     prediction_file = f"data/PredictLabel/{scene}_{grid}/predict_label_{instance}.txt"
+    goal_position_file = f"data/goalPosition/{scene}Points_{grid}.txt"
+    path_dir = f"data/path/{scene}_{grid}"
+    obstacle_file = f"data/Obstacles/{scene}_{grid}/{instance}.txt"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     for planner in PLANNERS:
         stats_file = f"data/Results/codex_original_{planner}_{scene}_{grid}_{instance}_{stamp}.txt"
         command = runner_command(scene, grid, instance, planner, stats_file)
         bash_args = ["bash", "-c", shell_program, "author-runner", linux_repo,
-                     instance_file, prediction_file, *command]
+                     instance_file, prediction_file, goal_position_file, path_dir,
+                     obstacle_file, *command]
         invocation = (["wsl.exe", "--distribution", distro, "--exec", *bash_args]
                       if backend == "wsl" else bash_args)
         process = subprocess.run(

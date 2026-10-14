@@ -33,7 +33,17 @@ python -m unittest delivery_sim.test_core
 
 要使用论文作者的**原始代码**，在 Ubuntu 虚拟机内运行 `python3 -m delivery_sim.author_original --backend local --scene Maze --grid 2 --instance 0`；也可以在装有 WSL 的 Windows 上运行 `python -m delivery_sim.author_original --backend wsl --scene Maze --grid 2 --instance 0`。它会调用[作者仓库](https://github.com/yuanjielu-64/MGMM_ICRA2025)编译出来的 `bin/Runner`，在作者提供的**同一个场景样例**上分别使用 `UseMP Sequential` 和 `UseMP Dromos`；后者是作者 README 中 MGMM 的入口。脚本会记录作者仓库提交号、原始程序输出、求解状态、规划时间和路程，保存到 `artifacts/delivery_sim/author_original_*.json`。原版运行失败时直接报错，不退回到本项目的 Python 算法。
 
-运行前需要在 Ubuntu 虚拟机或 WSL 中把作者仓库克隆到 `~/MGMM_ICRA2025` 并按照其 README 安装依赖、编译，确保 `bin/Runner`、对应的 `data/Instances/`、`data/Obstacles/` 和 `data/PredictLabel/` 文件齐全。Windows WSL 模式可用 `--distro` 指定发行版名称；两种模式均可用 `--linux-repo` 指定 Ubuntu 内的仓库路径。作者项目使用 C++、OpenGL/GLUT、PNG、LightGBM、Treelite 和 LKH，不能直接运行 Windows `.exe`。当前本机尚未连接到 Ubuntu 虚拟机，此入口尚未进行 C++ 实测。
+已在 Ubuntu 20.04 虚拟机用作者提交 `107a309f787f354ec74e47084008b8b007bc0091` 编译、运行 Maze／网格 2／样例 0：原版 `Sequential` 和 `Dromos` 都得到 `[solved = 1]`。结果文件在 `artifacts/delivery_sim/author_original_*.json`；规划含随机性，一次运行的数值不是论文性能结论。虚拟机内的本项目入口位于 `~/ROS-CAR-delivery-sim`，作者源码位于 `~/MGMM_ICRA2025`。
+
+作者的图形窗口 `GRunMP` 也已在虚拟机桌面打开过。要再次打开迷宫样例，在 Ubuntu 终端进入 `~/MGMM_ICRA2025` 后运行：
+
+```bash
+./bin/Runner GRunMP data/ParamsSceneMazeForCar.txt ParamsExtraFile data/Instances/MazeCarNrGrids2/0.txt MGMMPredictLabel data/PredictLabel/ UseMP Dromos UseMap Maze PlannerStatsFile data/Results/gui_Maze_2_0.txt UseGrid 2 UseObstacle 0 TopNumber 5
+```
+
+窗口内按作者 README 的操作：右键打开 “Motion Planner”，选择 “solve repeat”，再选择 “animate solution” 观看路径。切换到 `UseMP Sequential` 可看原版顺序规划器。图形窗口和上面的命令行统计入口使用同一作者场景，但各次运行随机采样会使结果不同。
+
+重新安装时需要克隆作者仓库、检出其记录的 Treelite 子模块版本并编译，确保 `bin/Runner`、车体图形资源 `gdata/`、对应的 `data/Instances/`、`data/Obstacles/`、`data/PredictLabel/`、`data/goalPosition/`、`data/path/` 都齐全。此次虚拟机使用 CMake 3.27.9；作者 `CMakeLists.txt` 中硬编码的 `/usr/local/lib/lib_lightgbm.so` 在虚拟机不存在，构建前只从该文件中移除了这一条链接路径，算法 C++ 源码未改。Windows WSL 模式可用 `--distro` 指定发行版名称；两种模式均可用 `--linux-repo` 指定 Ubuntu 内的仓库路径。作者项目依赖 C++、OpenGL/GLUT、PNG、Treelite 和 LKH，不能直接运行 Windows `.exe`。
 
 原版实验使用作者的 Random、Curves、Maze、Storage 场景与目标点，**不会读取本窗口的地图、随机障碍或 A–E 订单**。窗口中的“当前条件对比”仍是本项目的网格演示。若要让作者算法规划窗口里的自定义地图，还需实现地图/目标格式转换，并生成与新场景对应的 MGMM 预测数据；只替换算法名称无法做到等价运行。
 

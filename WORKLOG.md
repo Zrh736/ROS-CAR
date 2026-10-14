@@ -1682,5 +1682,7 @@
 
 - 单独浅克隆作者 `yuanjielu-64/MGMM_ICRA2025` 到本机相邻目录，核对到提交 `107a309f787f354ec74e47084008b8b007bc0091`；作者仓库中有 `Sequential` 和 `Dromos` C++ 规划器，README 将 `Dromos` 对应 MGMM。没有把作者源码复制进本仓库。
 - 新增 `delivery_sim.author_original` 独立入口：同一作者 Maze/Random/Curves/Storage 样例分别调用原版 `UseMP Sequential` 与 `UseMP Dromos`，提取原程序状态、时间和路程并保存原始输出及提交号。缺 WSL、编译后的 Runner 或作者数据时直接报错，不调用 Windows Python 网格替代。
-- 本机 WSL 没有 Linux 发行版，无法编译或运行作者 C++ 程序。15 项 Python 测试、语法检查与 diff 空白检查通过；这些检查不代表论文实验复现或原版 C++ 运行通过。现有 Windows 窗口仍为独立的网格演示。
-- 用户说明已有 Ubuntu 虚拟机；本机 VMware 清单列有 Ubuntu 20.04 与 22.04，当前未连接到虚拟机。原版入口新增 `--backend local`，可在 Ubuntu 虚拟机内直接调用作者 `Runner`；Windows 的 WSL 模式保留。独立入口仍需作者程序在虚拟机内编译后实测。
+- WSL 没有 Linux 发行版；改为连接用户的 Ubuntu 20.04 VMware 虚拟机。作者仓库稀疏检出到提交 `107a309f787f354ec74e47084008b8b007bc0091`，Treelite 子模块固定 `b86063e2b90e7d55d06d7201bdb5e09a6a603cd5`，用 CMake 3.27.9 编译出原版 `bin/Runner`。作者 `CMakeLists.txt` 中不存在于该虚拟机的 `/usr/local/lib/lib_lightgbm.so` 链接行单独移除；规划器 C++ 源码未改。
+- 首次运行因稀疏检出缺少 `gdata/` 中车体模型及 `data/goalPosition/`、`data/path/` 而失败；补齐作者原始数据后，Maze／网格 2／样例 0 的 `Sequential` 与 `Dromos` 均输出 `[solved = 1]`。独立入口在虚拟机实测可调用两种作者规划器并生成 JSON；一次记录复制到本机 `artifacts/delivery_sim/author_original_20261014_134333.json`。一次随机运行不代表论文的统计结论，Windows Tk 网格演示仍是独立实现。
+- 独立入口增加目标坐标、路径目录和障碍数据的运行前检查，缺失时给出明确报错。Ubuntu 虚拟机内入口为 `~/ROS-CAR-delivery-sim`；Windows WSL 模式保留。
+- 作者 `GRunMP` 图形程序已在 Ubuntu 20.04 桌面打开并截图确认迷宫场景；截图留在本机 `artifacts/delivery_sim/author_gui_Maze_2_0.png`。图形窗口的求解与动画需按作者菜单操作。更新后的独立入口再次在虚拟机成功运行，17 项 Python 测试通过。
