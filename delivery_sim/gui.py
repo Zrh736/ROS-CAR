@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -20,7 +21,8 @@ COLORS = {"IDLE": "#526579", "MOVING": "#2176ae", "WAITING": "#bc761a",
 class DeliveryApp:
     def __init__(self, root):
         self.root = root
-        self.mission = DeliveryMission()
+        self.map_seed = secrets.randbelow(1_000_000_000)
+        self.mission = DeliveryMission(obstacles=obstacles_for_map(MAP_NAMES[0], self.map_seed))
         self.paused = False
         self.last_event_count = 0
         root.title("ROS-CAR 多点配送 · Windows 二维仿真")
@@ -80,6 +82,9 @@ class DeliveryApp:
         map_picker = ttk.Combobox(panel, textvariable=self.map_var, values=MAP_NAMES, state="readonly")
         map_picker.pack(fill="x", pady=(4, 8))
         map_picker.bind("<<ComboboxSelected>>", self.select_map)
+        self.seed_var = tk.StringVar(value=f"随机场景编号：{self.map_seed}")
+        ttk.Label(panel, textvariable=self.seed_var, style="Panel.TLabel",
+                  foreground="#64758b").pack(anchor="w", pady=(0, 7))
         ttk.Label(panel, text="配送点（A、B、C、D、E）", style="Panel.TLabel").pack(anchor="w")
         self.order_var = tk.StringVar(value="A,B,C")
         ttk.Entry(panel, textvariable=self.order_var).pack(fill="x", pady=(4, 7))
@@ -96,12 +101,20 @@ class DeliveryApp:
         buttons = ttk.Frame(panel, style="Panel.TFrame")
         buttons.pack(fill="x")
         for label, command in (("开始配送", self.start), ("确认取货", self.confirm),
-                               ("暂停 / 继续", self.pause), ("取消任务", self.cancel),
-                               ("重置地图", self.reset), ("当前条件对比 1 次", self.compare),
-                               ("当前条件对比 10 次", self.compare_benchmark),
-                               ("内置场景自动测试 10 次", self.batch)):
+                               ("暂停 / 继续", self.pause), ("取消任务", self.cancel)):
             button_style = "Primary.TButton" if label == "开始配送" else "Danger.TButton" if label == "取消任务" else "Action.TButton"
             ttk.Button(buttons, text=label, command=command, style=button_style).pack(fill="x", pady=1)
+        map_actions = ttk.Frame(buttons, style="Panel.TFrame")
+        map_actions.pack(fill="x", pady=1)
+        ttk.Button(map_actions, text="恢复本次地图", command=self.reset,
+                   style="Action.TButton").pack(side="left", fill="x", expand=True, padx=(0, 3))
+        ttk.Button(map_actions, text="换随机障碍", command=self.new_random_map,
+                   style="Action.TButton").pack(side="left", fill="x", expand=True, padx=(3, 0))
+        for label, command in (("当前条件对比 1 次", self.compare),
+                               ("当前条件对比 10 次", self.compare_benchmark),
+                               ("内置场景自动测试 10 次", self.batch)):
+            ttk.Button(buttons, text=label, command=command,
+                       style="Action.TButton").pack(fill="x", pady=1)
 
         ttk.Separator(panel, style="Panel.TSeparator").pack(fill="x", pady=7)
         self.state_var = tk.StringVar()
@@ -213,7 +226,8 @@ class DeliveryApp:
         self.render()
 
     def reset(self):
-        self.mission = DeliveryMission(obstacles=obstacles_for_map(self.map_var.get()))
+        self.mission = DeliveryMission(obstacles=obstacles_for_map(self.map_var.get(), self.map_seed))
+        self.seed_var.set(f"随机场景编号：{self.map_seed}")
         self.paused = False
         self.last_event_count = 0
         self.log.configure(state="normal")
@@ -222,6 +236,11 @@ class DeliveryApp:
         self.render()
 
     def select_map(self, _event=None):
+        self.map_seed = secrets.randbelow(1_000_000_000)
+        self.reset()
+
+    def new_random_map(self):
+        self.map_seed = secrets.randbelow(1_000_000_000)
         self.reset()
 
     def _entered_order(self):
@@ -270,6 +289,7 @@ class DeliveryApp:
             "kind": "sequential_rrt_vs_mgmm_grid_demo",
             "note": "SequentialRRT is a random-tree grid adaptation. MGMM-grid is an independently implemented path-cache and tour analogy, without the paper's trained predictor, guided roadmap, or vehicle dynamics. These are not the original paper implementations. Repeated runs use the same static map and order; memory carries across runs.",
             "map": self.map_var.get(),
+            "map_seed": self.map_seed,
             "requested_order": order,
             "ordering": "auto" if auto_order else "fixed",
             "obstacles": sorted(self.mission.obstacles),

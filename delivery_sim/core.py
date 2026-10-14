@@ -38,19 +38,18 @@ def _rectangular_ring(left, top, right, bottom, gates):
     return walls - gates
 
 
-def obstacles_for_map(name: str) -> set[tuple[int, int]]:
-    """Return a fresh obstacle set for a built-in example map."""
+def obstacles_for_map(name: str, seed: int | None = None) -> set[tuple[int, int]]:
+    """Build a map; a seed adds repeatable clutter without blocking the goals."""
     if name == MAP_NAMES[0]:
-        return default_obstacles()
-    if name == MAP_NAMES[1]:
+        walls = default_obstacles()
+    elif name == MAP_NAMES[1]:
         walls = {(x, y) for y in (9, 19, 29) for x in range(2, 53)
                  if x not in (7, 8, 9, 26, 27, 28, 46, 47, 48)}
         walls |= {(x, y) for x in (13, 21, 35, 43) for y in (*range(3, 8), *range(12, 18),
                                                                *range(22, 28), *range(32, 37))}
-        return walls
-    if name == MAP_NAMES[2]:
-        return set()
-    if name == MAP_NAMES[3]:
+    elif name == MAP_NAMES[2]:
+        walls = set()
+    elif name == MAP_NAMES[3]:
         gaps = {11: (5, 6, 7, 8, 9), 22: (29, 30, 31, 32, 33),
                 33: (6, 7, 8, 9, 10), 44: (28, 29, 30, 31, 32)}
         walls = {(x, y) for x, opening in gaps.items() for y in range(1, 38)
@@ -59,8 +58,7 @@ def obstacles_for_map(name: str) -> set[tuple[int, int]]:
                  (12, 25, 32), (27, 24, 31), (14, 35, 43), (25, 34, 42),
                  (12, 47, 53), (24, 46, 52), (33, 3, 9), (34, 25, 31))
         walls |= {(x, y) for y, left, right in spurs for x in range(left, right)}
-        return walls
-    if name == MAP_NAMES[4]:
+    elif name == MAP_NAMES[4]:
         outer_gates = {(x, 7) for x in (26, 27, 28)}
         outer_gates |= {(x, 31) for x in (26, 27, 28)}
         outer_gates |= {(13, y) for y in (18, 19, 20)}
@@ -70,8 +68,50 @@ def obstacles_for_map(name: str) -> set[tuple[int, int]]:
         walls = _rectangular_ring(13, 7, 41, 31, outer_gates)
         walls |= _rectangular_ring(20, 13, 34, 25, inner_gates)
         walls |= _rectangular_ring(24, 16, 30, 22, center_gates)
+    else:
+        raise ValueError(f"未知地图：{name}")
+    if seed is None:
         return walls
-    raise ValueError(f"未知地图：{name}")
+    return _add_random_clutter(walls, name, seed)
+
+
+def _goals_reachable(obstacles):
+    if HOME in obstacles or any(point in obstacles for point in STATIONS.values()):
+        return False
+    reached = {HOME}
+    queue = deque([HOME])
+    while queue:
+        x, y = queue.popleft()
+        for point in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if (0 <= point[0] < WIDTH and 0 <= point[1] < HEIGHT
+                    and point not in obstacles and point not in reached):
+                reached.add(point)
+                queue.append(point)
+    return all(point in reached for point in STATIONS.values())
+
+
+def _add_random_clutter(base, name, seed):
+    rng = random.Random(seed)
+    target = {MAP_NAMES[0]: 55, MAP_NAMES[1]: 75, MAP_NAMES[2]: 35,
+              MAP_NAMES[3]: 50, MAP_NAMES[4]: 55}[name]
+    shapes = (((0, 0), (1, 0), (0, 1), (1, 1)), ((0, 0), (1, 0), (2, 0)),
+              ((0, 0), (0, 1), (0, 2))) if name == MAP_NAMES[1] else (
+              ((0, 0),), ((0, 0), (1, 0)), ((0, 0), (0, 1)))
+    protected = {(x + dx, y + dy) for x, y in (HOME, *STATIONS.values())
+                 for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
+    walls = set(base)
+    attempts = 0
+    while len(walls) - len(base) < target and attempts < 4000:
+        attempts += 1
+        x, y = rng.randrange(1, WIDTH - 2), rng.randrange(1, HEIGHT - 2)
+        shape = rng.choice(shapes)
+        addition = {(x + dx, y + dy) for dx, dy in shape}
+        if addition & (walls | protected):
+            continue
+        candidate = walls | addition
+        if _goals_reachable(candidate):
+            walls = candidate
+    return walls
 
 
 def shortest_path(start, goal, obstacles):

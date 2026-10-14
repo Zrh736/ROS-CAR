@@ -126,6 +126,18 @@ class DeliverySimulationTests(unittest.TestCase):
             self.assertEqual(result["sequential_rrt"]["state"], "DONE", name)
             self.assertEqual(result["mgmm_grid"]["state"], "DONE", name)
 
+    def test_seeded_random_obstacles_change_maps_without_trapping_stations(self):
+        for name in MAP_NAMES:
+            base = obstacles_for_map(name)
+            first = obstacles_for_map(name, 123)
+            second = obstacles_for_map(name, 124)
+            self.assertEqual(first, obstacles_for_map(name, 123))
+            self.assertNotEqual(first, second, name)
+            self.assertGreater(len(first), len(base), name)
+            self.assertTrue(base <= first)
+            self.assertTrue(all(shortest_path(HOME, point, first) is not None
+                                for point in STATIONS.values()), name)
+
     def test_sequential_rrt_builds_a_collision_free_tree_path(self):
         walls = obstacles_for_map(MAP_NAMES[0])
         path, samples = sequential_rrt_path(STATIONS["A"], STATIONS["C"], walls, random.Random(17))
