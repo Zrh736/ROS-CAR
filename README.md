@@ -115,6 +115,8 @@ docs/      方案、接口、计划；docs/archive/ 为历史文档
 
 ## 文档索引
 
+多点配送流程的 Windows 二维仿真见 [`delivery_sim/README.md`](delivery_sim/README.md)；它不连接 ROS 或实车。
+
 - [云端拍照任务修复说明](docs/云端拍照任务修复说明.md)（验收后七项修复要求）
 - [云端拍照任务 ROS 接口方案](docs/云端拍照任务ROS接口方案.md)（可选服务门面实施入口）
 - [云端拍照任务实现与验收](docs/云端拍照任务实现与验收.md)（独立链路、本机联调与待现场项）
