@@ -9,8 +9,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from .core import (CELL_METERS, HEIGHT, HOME, MAP_NAMES, STATIONS, WIDTH,
-                   DeliveryMission, compare_current_order, obstacles_for_map,
-                   run_batch, run_comparison)
+                   DeliveryMission, compare_algorithms, obstacles_for_map,
+                   run_batch)
 
 CELL = 28
 COLORS = {"IDLE": "#526579", "MOVING": "#2176ae", "WAITING": "#bc761a",
@@ -52,18 +52,20 @@ class DeliveryApp:
         ttk.Entry(panel, textvariable=self.order_var).pack(fill="x", pady=(5, 10))
         ttk.Label(panel, text="自动排序只看选了哪些点；按输入顺序模式才遵守填写顺序。",
                   foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
-        self.planner_var = tk.StringVar(value="memory")
-        ttk.Radiobutton(panel, text="路径记忆 + 自动排序（论文思路简化版）",
-                        variable=self.planner_var, value="memory").pack(anchor="w")
-        ttk.Radiobutton(panel, text="按输入顺序配送（对照）",
-                        variable=self.planner_var, value="fixed").pack(anchor="w", pady=(0, 8))
+        self.ordering_var = tk.StringVar(value="auto")
+        ttk.Radiobutton(panel, text="自动排序",
+                        variable=self.ordering_var, value="auto").pack(anchor="w")
+        ttk.Radiobutton(panel, text="按输入顺序配送",
+                        variable=self.ordering_var, value="fixed").pack(anchor="w", pady=(0, 8))
+        ttk.Label(panel, text="开始配送使用路径记忆算法；对比会同时运行路径记忆与普通算法。",
+                  foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
 
         buttons = ttk.Frame(panel)
         buttons.pack(fill="x")
         for label, command in (("开始配送", self.start), ("确认取货", self.confirm),
                                ("暂停 / 继续", self.pause), ("取消任务", self.cancel),
-                               ("重置地图", self.reset), ("当前订单对比", self.compare),
-                               ("内置样例对比 10 次", self.compare_benchmark),
+                               ("重置地图", self.reset), ("当前条件对比 1 次", self.compare),
+                               ("当前条件对比 10 次", self.compare_benchmark),
                                ("内置场景自动测试 10 次", self.batch)):
             ttk.Button(buttons, text=label, command=command).pack(fill="x", pady=2)
 
@@ -134,7 +136,7 @@ class DeliveryApp:
     def start(self):
         try:
             order = self._entered_order()
-            self.mission.start(order, optimize=self.planner_var.get() == "memory")
+            self.mission.start(order, algorithm="memory", auto_order=self.ordering_var.get() == "auto")
         except ValueError as exc:
             messagebox.showerror("无法开始", str(exc))
         else:
@@ -201,53 +203,53 @@ class DeliveryApp:
         messagebox.showinfo("自动测试完成", f"成功 {report['successes']}/10 次\n记录已保存：\n{path}")
 
     def compare(self):
+        self._compare(1)
+
+    def compare_benchmark(self):
+        self._compare(10)
+
+    def _compare(self, count):
         try:
             order = self._entered_order()
         except ValueError as exc:
             messagebox.showerror("无法对比", str(exc))
             return
-        pair = compare_current_order(order, self.mission.obstacles)
+        auto_order = self.ordering_var.get() == "auto"
+        rows = compare_algorithms(order, self.mission.obstacles, auto_order, count)
+        baseline = [row["baseline"] for row in rows]
+        memory = [row["memory"] for row in rows]
         report = {
-            "kind": "current_order_comparison",
-            "note": "Same entered order and current grid for both methods; simplified model, not original MGMM.",
+            "kind": "current_conditions_algorithm_comparison",
+            "note": "Baseline: nearest-neighbor order if automatic, fresh BFS paths. Memory: exact shortest visit order if automatic, cached BFS paths. Repeated runs use the same static map and order; memory carries across runs. Not original MGMM.",
             "map": self.map_var.get(),
             "requested_order": order,
+            "ordering": "auto" if auto_order else "fixed",
             "obstacles": sorted(self.mission.obstacles),
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            **pair,
-        }
-        directory = Path(__file__).resolve().parents[1] / "artifacts" / "delivery_sim"
-        directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f"current_comparison_{datetime.now():%Y%m%d_%H%M%S}.json"
-        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        fixed, memory = pair["fixed"], pair["memory_order"]
-        messagebox.showinfo(
-            "当前订单对比",
-            f"地图：{self.map_var.get()}｜输入：{' → '.join(order)}\n"
-            f"按输入顺序：{' → '.join(fixed['order'])} → H，{fixed['distance_m']:.1f} 米（{fixed['state']}）\n"
-            f"自动排序：{' → '.join(memory['order'])} → H，{memory['distance_m']:.1f} 米（{memory['state']}）\n\n"
-            f"寻路计算：{fixed['path_searches']} / {memory['path_searches']} 次；"
-            f"记忆复用：{memory['memory_hits']} 次\n\n详细记录：\n{path}",
-        )
-
-    def compare_benchmark(self):
-        rows = run_comparison(10)
-        total_fixed = sum(row["fixed"]["distance_m"] for row in rows)
-        total_memory = sum(row["memory_order"]["distance_m"] for row in rows)
-        report = {
-            "kind": "simplified_motion_memory_comparison",
-            "note": "Grid path cache and exact three-stop ordering; not the original MGMM model.",
-            "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "fixed_total_distance_m": total_fixed,
-            "memory_total_distance_m": total_memory,
             "runs": rows,
         }
         directory = Path(__file__).resolve().parents[1] / "artifacts" / "delivery_sim"
         directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f"comparison_{datetime.now():%Y%m%d_%H%M%S}.json"
+        path = directory / f"comparison_{datetime.now():%Y%m%d_%H%M%S_%f}.json"
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        messagebox.showinfo("内置样例对比完成", f"预设地图和 A/B/C 的 10 组顺序；不读取输入框。\n10 次合计路程：\n固定顺序 {total_fixed:.1f} 米\n"
-                            f"路径记忆 + 排序 {total_memory:.1f} 米\n\n详细记录：\n{path}")
+        first_baseline, first_memory = baseline[0], memory[0]
+        policy = "自动排序" if auto_order else "按输入顺序"
+        baseline_distance = sum(item["distance_m"] for item in baseline)
+        memory_distance = sum(item["distance_m"] for item in memory)
+        baseline_searches = sum(item["path_searches"] for item in baseline)
+        memory_searches = sum(item["path_searches"] for item in memory)
+        memory_hits = sum(item["memory_hits"] for item in memory)
+        explanation = "10 次使用同一地图和订单，路径记忆可跨次复用。" if count > 1 else "两种算法在相同条件下各运行一次。"
+        messagebox.showinfo(
+            "算法对比完成",
+            f"地图：{self.map_var.get()}｜配送方式：{policy}\n"
+            f"配送点：{' → '.join(order)}｜重复 {count} 次\n{explanation}\n\n"
+            f"普通算法：{' → '.join(first_baseline['order'])} → H\n"
+            f"合计 {baseline_distance:.1f} 米，寻路 {baseline_searches} 次，完成 {sum(r['state'] == 'DONE' for r in baseline)}/{count}\n\n"
+            f"路径记忆：{' → '.join(first_memory['order'])} → H\n"
+            f"合计 {memory_distance:.1f} 米，寻路 {memory_searches} 次，复用 {memory_hits} 次，完成 {sum(r['state'] == 'DONE' for r in memory)}/{count}\n\n"
+            f"详细记录：\n{path}",
+        )
 
 
 def main():

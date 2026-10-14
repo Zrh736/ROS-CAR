@@ -112,6 +112,28 @@ def optimize_visit_order(start, stations, obstacles, memory):
     return best
 
 
+def nearest_neighbor_order(start, stations, obstacles):
+    """Conventional greedy multi-stop baseline with fresh grid searches."""
+    remaining = set(stations)
+    order = []
+    searches = 0
+    current = start
+    while remaining:
+        choices = []
+        for name in sorted(remaining):
+            searches += 1
+            path = shortest_path(current, STATIONS[name], obstacles)
+            if path is not None:
+                choices.append((len(path) - 1, name))
+        if not choices:
+            return None, searches
+        _, name = min(choices)
+        order.append(name)
+        remaining.remove(name)
+        current = STATIONS[name]
+    return order, searches
+
+
 @dataclass
 class DeliveryMission:
     obstacles: set[tuple[int, int]] = field(default_factory=default_obstacles)
@@ -128,7 +150,8 @@ class DeliveryMission:
     reason: str = ""
     events: list[str] = field(default_factory=list)
     memory: RouteMemory = field(default_factory=RouteMemory)
-    optimize: bool = False
+    algorithm: str = "baseline"
+    auto_order: bool = False
     requested_order: list[str] = field(default_factory=list)
     path_searches: int = 0
     memory_start_hits: int = 0
@@ -140,7 +163,7 @@ class DeliveryMission:
 
     def _plan(self):
         goal = HOME if self.target == "HOME" else STATIONS[self.target]
-        if self.optimize:
+        if self.algorithm == "memory":
             path = self.memory.path(self.position, goal, self.obstacles)
         else:
             self.path_searches += 1
@@ -154,7 +177,14 @@ class DeliveryMission:
         self.path = path
         self._event(f"规划前往 {self.target}：{len(path) - 1} 格")
 
-    def start(self, order, optimize=False):
+    def _choose_order(self, start, stations):
+        if self.algorithm == "memory":
+            return optimize_visit_order(start, stations, self.obstacles, self.memory)
+        chosen, searches = nearest_neighbor_order(start, stations, self.obstacles)
+        self.path_searches += searches
+        return chosen
+
+    def start(self, order, optimize=False, *, algorithm=None, auto_order=None):
         if self.state not in ("IDLE", "DONE", "FAILED", "CANCELED"):
             raise ValueError("请先结束当前任务")
         order = [item.strip().upper() for item in order]
@@ -163,7 +193,10 @@ class DeliveryMission:
         self.position = HOME
         self.state = "MOVING"
         self.requested_order = order.copy()
-        self.optimize = optimize
+        self.algorithm = algorithm or ("memory" if optimize else "baseline")
+        self.auto_order = optimize if auto_order is None else auto_order
+        if self.algorithm not in ("memory", "baseline"):
+            raise ValueError("未知配送算法")
         self.visited = []
         self.target = None
         self.path = []
@@ -175,8 +208,7 @@ class DeliveryMission:
         self.memory_start_searches = self.memory.searches
         self.memory_start_repairs = self.memory.repairs
         self.path_searches = 0
-        self.order = (optimize_visit_order(HOME, order, self.obstacles, self.memory)
-                      if optimize else order)
+        self.order = self._choose_order(HOME, order) if self.auto_order else order
         if self.order is None:
             self.order = order
             self.state = "FAILED"
@@ -185,8 +217,8 @@ class DeliveryMission:
             return
         self.target = self.order[0]
         self._event("接单：" + " → ".join(order) + " → HOME")
-        if optimize:
-            self._event("路径记忆建议顺序：" + " → ".join(self.order) + " → HOME")
+        if self.auto_order:
+            self._event("自动排序建议：" + " → ".join(self.order) + " → HOME")
         self._plan()
 
     def tick(self):
@@ -216,9 +248,9 @@ class DeliveryMission:
             raise ValueError("当前没有等待确认的配送点")
         self.visited.append(self.target)
         self._event(f"{self.target} 已确认取货")
-        if self.optimize and len(self.visited) < len(self.order):
+        if self.auto_order and len(self.visited) < len(self.order):
             remaining = self.order[len(self.visited):]
-            revised = optimize_visit_order(self.position, remaining, self.obstacles, self.memory)
+            revised = self._choose_order(self.position, remaining)
             if revised is None:
                 self.state = "FAILED"
                 self.reason = "剩余配送点无法全部到达"
@@ -263,11 +295,12 @@ class DeliveryMission:
             "position": self.position, "distance_m": self.distance_cells * CELL_METERS,
             "trajectory": self.trajectory,
             "elapsed_s": self.elapsed_seconds, "replans": self.replans,
-            "planner": "memory_order" if self.optimize else "fixed_order",
+            "planner": self.algorithm,
+            "ordering": "auto" if self.auto_order else "fixed",
             "path_searches": (self.memory.searches - self.memory_start_searches
-                              if self.optimize else self.path_searches),
-            "memory_hits": self.memory.hits - self.memory_start_hits if self.optimize else 0,
-            "memory_repairs": self.memory.repairs - self.memory_start_repairs if self.optimize else 0,
+                              if self.algorithm == "memory" else self.path_searches),
+            "memory_hits": self.memory.hits - self.memory_start_hits if self.algorithm == "memory" else 0,
+            "memory_repairs": self.memory.repairs - self.memory_start_repairs if self.algorithm == "memory" else 0,
             "reason": self.reason, "events": self.events,
         }
 
@@ -303,19 +336,25 @@ def run_batch(count=10):
     return results
 
 
-def run_comparison(count=10):
-    """Compare fixed and memory-ordered tours on the same static grid."""
+def compare_algorithms(order, obstacles, auto_order, count=1):
+    """Run both algorithms under identical map, goals and ordering policy.
+
+    Repeated runs reuse memory only in the memory arm. The map stays unchanged,
+    so repetitions measure route reuse rather than varying scenarios.
+    """
     if count < 1:
         raise ValueError("count must be positive")
-    orders = list(permutations(("A", "B", "C")))
+    requested = [item.strip().upper() for item in order]
+    if not requested or len(set(requested)) != len(requested) or any(item not in STATIONS for item in requested):
+        raise ValueError("请输入不重复的配送点，例如 A,B,C")
     shared_memory = RouteMemory()
     rows = []
     for index in range(count):
-        requested = orders[index % len(orders)]
         pair = {}
-        for label, optimized in (("fixed", False), ("memory_order", True)):
-            mission = DeliveryMission(memory=shared_memory if optimized else RouteMemory())
-            mission.start(requested, optimize=optimized)
+        for algorithm in ("baseline", "memory"):
+            mission = DeliveryMission(obstacles=set(obstacles),
+                                      memory=shared_memory if algorithm == "memory" else RouteMemory())
+            mission.start(requested, algorithm=algorithm, auto_order=auto_order)
             steps = 0
             while mission.state in ("MOVING", "WAITING") and steps < 500:
                 if mission.state == "WAITING":
@@ -323,26 +362,9 @@ def run_comparison(count=10):
                 else:
                     mission.tick()
                 steps += 1
-            pair[label] = mission.result()
+            if steps >= 500:
+                mission.state = "FAILED"
+                mission.reason = "仿真步数超限"
+            pair[algorithm] = mission.result()
         rows.append({"run": index + 1, "requested_order": requested, **pair})
     return rows
-
-
-def compare_current_order(order, obstacles):
-    """Run both methods on the same requested order and current map."""
-    pair = {}
-    for label, optimized in (("fixed", False), ("memory_order", True)):
-        mission = DeliveryMission(obstacles=set(obstacles))
-        mission.start(order, optimize=optimized)
-        steps = 0
-        while mission.state in ("MOVING", "WAITING") and steps < 500:
-            if mission.state == "WAITING":
-                mission.confirm()
-            else:
-                mission.tick()
-            steps += 1
-        if steps >= 500:
-            mission.state = "FAILED"
-            mission.reason = "仿真步数超限"
-        pair[label] = mission.result()
-    return pair
