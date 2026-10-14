@@ -12,7 +12,7 @@ from .core import (CELL_METERS, HEIGHT, HOME, MAP_NAMES, STATIONS, WIDTH,
                    DeliveryMission, compare_algorithms, obstacles_for_map,
                    run_batch)
 
-CELL = 23
+CELL = 20
 COLORS = {"IDLE": "#526579", "MOVING": "#2176ae", "WAITING": "#bc761a",
           "DONE": "#238247", "FAILED": "#b43f40", "CANCELED": "#667085"}
 
@@ -24,14 +24,14 @@ class DeliveryApp:
         self.paused = False
         self.last_event_count = 0
         root.title("ROS-CAR 多点配送 · Windows 二维仿真")
-        root.minsize(1200, 850)
+        root.minsize(1300, 880)
         root.configure(bg="#f4f6f9")
 
-        body = ttk.Frame(root, padding=18)
+        body = ttk.Frame(root, padding=12)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="多点配送仿真", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(body, text="35 × 25 格｜每格 0.5 米｜点击地图可放置或移除障碍｜此界面不连接小车或 ROS",
-                  foreground="#526579").pack(anchor="w", pady=(2, 12))
+        ttk.Label(body, text=f"{WIDTH} × {HEIGHT} 格｜每格 0.5 米｜点击地图可放置或移除障碍｜此界面不连接小车或 ROS",
+                  foreground="#526579").pack(anchor="w", pady=(2, 8))
 
         content = ttk.Frame(body)
         content.pack(fill="both", expand=True)
@@ -69,15 +69,15 @@ class DeliveryApp:
                                ("重置地图", self.reset), ("当前条件对比 1 次", self.compare),
                                ("当前条件对比 10 次", self.compare_benchmark),
                                ("内置场景自动测试 10 次", self.batch)):
-            ttk.Button(buttons, text=label, command=command).pack(fill="x", pady=2)
+            ttk.Button(buttons, text=label, command=command).pack(fill="x", pady=1)
 
-        ttk.Separator(panel).pack(fill="x", pady=12)
+        ttk.Separator(panel).pack(fill="x", pady=8)
         self.state_var = tk.StringVar()
         self.metrics_var = tk.StringVar()
         ttk.Label(panel, textvariable=self.state_var, font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w")
         ttk.Label(panel, textvariable=self.metrics_var, justify="left").pack(anchor="w", pady=(5, 12))
         ttk.Label(panel, text="任务记录", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
-        self.log = tk.Text(panel, width=34, height=13, state="disabled", wrap="word",
+        self.log = tk.Text(panel, width=34, height=5, state="disabled", wrap="word",
                            font=("Consolas", 9), bg="#f9fbfd")
         self.log.pack(fill="both", expand=True, pady=(5, 0))
         self.render()

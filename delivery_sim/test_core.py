@@ -117,7 +117,7 @@ class DeliverySimulationTests(unittest.TestCase):
         self.assertEqual(compare_algorithms(["D"], blocked, False)[0]["sequential_rrt"]["state"], "FAILED")
 
     def test_each_example_map_supports_all_five_delivery_points(self):
-        self.assertEqual((WIDTH, HEIGHT), (35, 25))
+        self.assertEqual((WIDTH, HEIGHT), (45, 33))
         self.assertEqual(len(MAP_NAMES), 5)
         self.assertGreater(len(obstacles_for_map("迷宫地图")), len(obstacles_for_map("经典障碍")))
         self.assertEqual(len(STATIONS), 5)
