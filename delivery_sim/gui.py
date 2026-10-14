@@ -8,7 +8,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .core import CELL_METERS, HEIGHT, HOME, STATIONS, WIDTH, DeliveryMission, run_batch
+from .core import (CELL_METERS, HEIGHT, HOME, STATIONS, WIDTH, DeliveryMission,
+                   run_batch, run_comparison)
 
 CELL = 28
 COLORS = {"IDLE": "#526579", "MOVING": "#2176ae", "WAITING": "#bc761a",
@@ -43,12 +44,18 @@ class DeliveryApp:
         ttk.Label(panel, text="配送顺序（A、B、C）", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
         self.order_var = tk.StringVar(value="A,B,C")
         ttk.Entry(panel, textvariable=self.order_var).pack(fill="x", pady=(5, 10))
+        self.planner_var = tk.StringVar(value="memory")
+        ttk.Radiobutton(panel, text="路径记忆 + 自动排序（论文思路简化版）",
+                        variable=self.planner_var, value="memory").pack(anchor="w")
+        ttk.Radiobutton(panel, text="按输入顺序配送（对照）",
+                        variable=self.planner_var, value="fixed").pack(anchor="w", pady=(0, 8))
 
         buttons = ttk.Frame(panel)
         buttons.pack(fill="x")
         for label, command in (("开始配送", self.start), ("确认取货", self.confirm),
                                ("暂停 / 继续", self.pause), ("取消任务", self.cancel),
-                               ("重置地图", self.reset), ("自动测试 10 次", self.batch)):
+                               ("重置地图", self.reset), ("自动测试 10 次", self.batch),
+                               ("两种方法对比 10 次", self.compare)):
             ttk.Button(buttons, text=label, command=command).pack(fill="x", pady=2)
 
         ttk.Separator(panel).pack(fill="x", pady=12)
@@ -97,11 +104,15 @@ class DeliveryApp:
         state = self.mission.state
         suffix = "（已暂停）" if self.paused and state == "MOVING" else ""
         self.state_var.set(f"状态：{state}{suffix}    目标：{self.mission.target or '无'}")
+        order = " → ".join(self.mission.order) if self.mission.order else "尚未开始"
+        counts = self.mission.result()
         self.metrics_var.set(
+            f"配送顺序：{order}\n"
             f"已送达：{'、'.join(self.mission.visited) or '无'}\n"
             f"路程：{self.mission.distance_cells * CELL_METERS:.1f} 米\n"
             f"仿真时间：{self.mission.elapsed_seconds} 秒\n"
-            f"重新规划：{self.mission.replans} 次"
+            f"重新规划：{self.mission.replans} 次\n"
+            f"寻路计算：{counts['path_searches']} 次｜记忆复用：{counts['memory_hits']} 次"
         )
         self._append_events()
 
@@ -114,7 +125,7 @@ class DeliveryApp:
     def start(self):
         try:
             order = self.order_var.get().replace("，", ",").split(",")
-            self.mission.start(order)
+            self.mission.start(order, optimize=self.planner_var.get() == "memory")
         except ValueError as exc:
             messagebox.showerror("无法开始", str(exc))
         else:
@@ -170,6 +181,25 @@ class DeliveryApp:
         path = directory / f"batch_{datetime.now():%Y%m%d_%H%M%S}.json"
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         messagebox.showinfo("自动测试完成", f"成功 {report['successes']}/10 次\n记录已保存：\n{path}")
+
+    def compare(self):
+        rows = run_comparison(10)
+        total_fixed = sum(row["fixed"]["distance_m"] for row in rows)
+        total_memory = sum(row["memory_order"]["distance_m"] for row in rows)
+        report = {
+            "kind": "simplified_motion_memory_comparison",
+            "note": "Grid path cache and exact three-stop ordering; not the original MGMM model.",
+            "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "fixed_total_distance_m": total_fixed,
+            "memory_total_distance_m": total_memory,
+            "runs": rows,
+        }
+        directory = Path(__file__).resolve().parents[1] / "artifacts" / "delivery_sim"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"comparison_{datetime.now():%Y%m%d_%H%M%S}.json"
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        messagebox.showinfo("对比完成", f"10 次合计路程：\n固定顺序 {total_fixed:.1f} 米\n"
+                            f"路径记忆 + 排序 {total_memory:.1f} 米\n\n详细记录：\n{path}")
 
 
 def main():

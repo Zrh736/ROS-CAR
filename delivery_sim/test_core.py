@@ -2,7 +2,7 @@
 
 import unittest
 
-from .core import DeliveryMission, STATIONS, run_batch, shortest_path
+from .core import DeliveryMission, RouteMemory, STATIONS, run_batch, run_comparison, shortest_path
 
 
 class DeliverySimulationTests(unittest.TestCase):
@@ -66,6 +66,39 @@ class DeliverySimulationTests(unittest.TestCase):
 
     def test_shortest_path_rejects_blocked_goal(self):
         self.assertIsNone(shortest_path((0, 0), (1, 1), {(1, 1)}))
+
+    def test_memory_reuses_safe_path_and_repairs_blocked_path(self):
+        memory = RouteMemory()
+        walls = set()
+        original = memory.path((0, 0), (4, 0), walls)
+        self.assertEqual(memory.searches, 1)
+        self.assertEqual(memory.path((0, 0), (4, 0), walls), original)
+        self.assertEqual(memory.hits, 1)
+        walls.add(original[1])
+        repaired = memory.path((0, 0), (4, 0), walls)
+        self.assertNotIn(original[1], repaired)
+        self.assertEqual(memory.repairs, 1)
+        self.assertEqual(memory.searches, 2)
+
+    def test_optimized_order_and_ten_run_comparison(self):
+        rows = run_comparison(10)
+        self.assertEqual(len(rows), 10)
+        self.assertTrue(all(row["fixed"]["state"] == "DONE" for row in rows))
+        self.assertTrue(all(row["memory_order"]["state"] == "DONE" for row in rows))
+        self.assertTrue(all(row["memory_order"]["distance_m"] <= row["fixed"]["distance_m"]
+                            for row in rows))
+        self.assertLess(sum(row["memory_order"]["distance_m"] for row in rows),
+                        sum(row["fixed"]["distance_m"] for row in rows))
+        self.assertGreater(sum(row["memory_order"]["memory_hits"] for row in rows), 0)
+
+    def test_optimized_mode_reports_unreachable_station(self):
+        mission = DeliveryMission()
+        x, y = STATIONS["B"]
+        mission.obstacles.update({(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)})
+        mission.start(["A", "B", "C"], optimize=True)
+        self.assertEqual(mission.state, "FAILED")
+        self.assertIsNone(mission.target)
+        self.assertEqual(mission.visited, [])
 
 
 if __name__ == "__main__":

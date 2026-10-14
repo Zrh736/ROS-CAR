@@ -48,6 +48,57 @@ def shortest_path(start, goal, obstacles):
 
 
 @dataclass
+class RouteMemory:
+    """Reuse previously found grid routes after checking them against new walls.
+
+    This is a small teaching analogue of motion memory, not the MGMM model.
+    """
+
+    routes: dict[tuple[tuple[int, int], tuple[int, int]], tuple[tuple[int, int], ...]] = field(default_factory=dict)
+    hits: int = 0
+    searches: int = 0
+    repairs: int = 0
+
+    def path(self, start, goal, obstacles):
+        key = (start, goal)
+        cached = self.routes.get(key)
+        if cached is not None and not any(point in obstacles for point in cached):
+            self.hits += 1
+            return list(cached)
+        if cached is not None:
+            self.repairs += 1
+        self.searches += 1
+        path = shortest_path(start, goal, obstacles)
+        if path is not None:
+            self.routes[key] = tuple(path)
+            self.routes[(goal, start)] = tuple(reversed(path))
+        return path
+
+    def clear_after_removal(self):
+        # Removing a wall may open a shorter route than a previously safe one.
+        self.routes.clear()
+
+
+def optimize_visit_order(start, stations, obstacles, memory):
+    """Find the shortest complete visit order using remembered pairwise paths."""
+    best = None
+    best_cost = float("inf")
+    for candidate in permutations(sorted(stations)):
+        points = [start] + [STATIONS[name] for name in candidate] + [HOME]
+        cost = 0
+        for source, destination in zip(points, points[1:]):
+            path = memory.path(source, destination, obstacles)
+            if path is None:
+                cost = float("inf")
+                break
+            cost += len(path) - 1
+        if cost < best_cost:
+            best = list(candidate)
+            best_cost = cost
+    return best
+
+
+@dataclass
 class DeliveryMission:
     obstacles: set[tuple[int, int]] = field(default_factory=default_obstacles)
     position: tuple[int, int] = HOME
@@ -62,13 +113,24 @@ class DeliveryMission:
     replans: int = 0
     reason: str = ""
     events: list[str] = field(default_factory=list)
+    memory: RouteMemory = field(default_factory=RouteMemory)
+    optimize: bool = False
+    requested_order: list[str] = field(default_factory=list)
+    path_searches: int = 0
+    memory_start_hits: int = 0
+    memory_start_searches: int = 0
+    memory_start_repairs: int = 0
 
     def _event(self, message):
         self.events.append(f"{self.elapsed_seconds:03d}s  {message}")
 
     def _plan(self):
         goal = HOME if self.target == "HOME" else STATIONS[self.target]
-        path = shortest_path(self.position, goal, self.obstacles)
+        if self.optimize:
+            path = self.memory.path(self.position, goal, self.obstacles)
+        else:
+            self.path_searches += 1
+            path = shortest_path(self.position, goal, self.obstacles)
         if path is None:
             self.state = "FAILED"
             self.reason = f"前往 {self.target} 的道路被堵"
@@ -78,7 +140,7 @@ class DeliveryMission:
         self.path = path
         self._event(f"规划前往 {self.target}：{len(path) - 1} 格")
 
-    def start(self, order):
+    def start(self, order, optimize=False):
         if self.state not in ("IDLE", "DONE", "FAILED", "CANCELED"):
             raise ValueError("请先结束当前任务")
         order = [item.strip().upper() for item in order]
@@ -86,15 +148,31 @@ class DeliveryMission:
             raise ValueError("请输入不重复的配送点，例如 A,B,C")
         self.position = HOME
         self.state = "MOVING"
-        self.order = order
+        self.requested_order = order.copy()
+        self.optimize = optimize
         self.visited = []
-        self.target = order[0]
+        self.target = None
         self.path = []
         self.trajectory = [HOME]
         self.distance_cells = self.elapsed_seconds = self.replans = 0
         self.reason = ""
         self.events = []
+        self.memory_start_hits = self.memory.hits
+        self.memory_start_searches = self.memory.searches
+        self.memory_start_repairs = self.memory.repairs
+        self.path_searches = 0
+        self.order = (optimize_visit_order(HOME, order, self.obstacles, self.memory)
+                      if optimize else order)
+        if self.order is None:
+            self.order = order
+            self.state = "FAILED"
+            self.reason = "存在无法到达的配送点"
+            self._event(self.reason + "，任务停止")
+            return
+        self.target = self.order[0]
         self._event("接单：" + " → ".join(order) + " → HOME")
+        if optimize:
+            self._event("路径记忆建议顺序：" + " → ".join(self.order) + " → HOME")
         self._plan()
 
     def tick(self):
@@ -124,6 +202,18 @@ class DeliveryMission:
             raise ValueError("当前没有等待确认的配送点")
         self.visited.append(self.target)
         self._event(f"{self.target} 已确认取货")
+        if self.optimize and len(self.visited) < len(self.order):
+            remaining = self.order[len(self.visited):]
+            revised = optimize_visit_order(self.position, remaining, self.obstacles, self.memory)
+            if revised is None:
+                self.state = "FAILED"
+                self.reason = "剩余配送点无法全部到达"
+                self.path = []
+                self._event(self.reason + "，任务停止")
+                return
+            if revised != remaining:
+                self.order = self.visited + revised
+                self._event("剩余站点调整为：" + " → ".join(revised))
         self.target = (self.order[len(self.visited)]
                        if len(self.visited) < len(self.order) else "HOME")
         self.state = "MOVING"
@@ -145,6 +235,7 @@ class DeliveryMission:
             return False
         if point in self.obstacles:
             self.obstacles.remove(point)
+            self.memory.clear_after_removal()
             self._event(f"移除障碍 {point}")
         else:
             self.obstacles.add(point)
@@ -153,10 +244,16 @@ class DeliveryMission:
 
     def result(self):
         return {
-            "state": self.state, "order": self.order, "visited": self.visited,
+            "state": self.state, "requested_order": self.requested_order,
+            "order": self.order, "visited": self.visited,
             "position": self.position, "distance_m": self.distance_cells * CELL_METERS,
             "trajectory": self.trajectory,
             "elapsed_s": self.elapsed_seconds, "replans": self.replans,
+            "planner": "memory_order" if self.optimize else "fixed_order",
+            "path_searches": (self.memory.searches - self.memory_start_searches
+                              if self.optimize else self.path_searches),
+            "memory_hits": self.memory.hits - self.memory_start_hits if self.optimize else 0,
+            "memory_repairs": self.memory.repairs - self.memory_start_repairs if self.optimize else 0,
             "reason": self.reason, "events": self.events,
         }
 
@@ -190,3 +287,28 @@ def run_batch(count=10):
             mission.reason = "仿真步数超限"
         results.append({"run": number + 1, "scenario": scenario, **mission.result()})
     return results
+
+
+def run_comparison(count=10):
+    """Compare fixed and memory-ordered tours on the same static grid."""
+    if count < 1:
+        raise ValueError("count must be positive")
+    orders = list(permutations(STATIONS))
+    shared_memory = RouteMemory()
+    rows = []
+    for index in range(count):
+        requested = orders[index % len(orders)]
+        pair = {}
+        for label, optimized in (("fixed", False), ("memory_order", True)):
+            mission = DeliveryMission(memory=shared_memory if optimized else RouteMemory())
+            mission.start(requested, optimize=optimized)
+            steps = 0
+            while mission.state in ("MOVING", "WAITING") and steps < 500:
+                if mission.state == "WAITING":
+                    mission.confirm()
+                else:
+                    mission.tick()
+                steps += 1
+            pair[label] = mission.result()
+        rows.append({"run": index + 1, "requested_order": requested, **pair})
+    return rows
