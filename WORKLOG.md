@@ -1677,3 +1677,9 @@
 
 - 新增 `docs/Agent控制接口速查.md`，简述模式切换/epoch 授权、外部速度顺序、停车与急停、主人认领、文字播报、停车租约和必要状态监测；同步 README 索引。限速和主人等待时间以运行配置/消息为准，避免沿用历史值。
 - 最小审查核对 srv 字段、guard 入口与参数、请求时间戳/唯一发布者及复位边界；检查文档链接与 diff 空白。本次仅文档，不修改代码、板端服务或运动状态，不把文档检查描述为实机验证。
+
+## 2026-10-14：作者原版 MGMM 运行入口准备
+
+- 单独浅克隆作者 `yuanjielu-64/MGMM_ICRA2025` 到本机相邻目录，核对到提交 `107a309f787f354ec74e47084008b8b007bc0091`；作者仓库中有 `Sequential` 和 `Dromos` C++ 规划器，README 将 `Dromos` 对应 MGMM。没有把作者源码复制进本仓库。
+- 新增 `delivery_sim.author_original` 独立入口：同一作者 Maze/Random/Curves/Storage 样例分别调用原版 `UseMP Sequential` 与 `UseMP Dromos`，提取原程序状态、时间和路程并保存原始输出及提交号。缺 WSL、编译后的 Runner 或作者数据时直接报错，不调用 Windows Python 网格替代。
+- 本机 WSL 没有 Linux 发行版，无法编译或运行作者 C++ 程序。15 项 Python 测试、语法检查与 diff 空白检查通过；这些检查不代表论文实验复现或原版 C++ 运行通过。现有 Windows 窗口仍为独立的网格演示。
