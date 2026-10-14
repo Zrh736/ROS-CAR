@@ -57,7 +57,9 @@ class DeliveryApp:
                         variable=self.ordering_var, value="auto").pack(anchor="w")
         ttk.Radiobutton(panel, text="按输入顺序配送",
                         variable=self.ordering_var, value="fixed").pack(anchor="w", pady=(0, 8))
-        ttk.Label(panel, text="开始配送使用路径记忆算法；对比会同时运行路径记忆与普通算法。",
+        ttk.Label(panel, text="开始配送使用 MGMM 思路二维版；对比会运行 SequentialRRT 网格版和 MGMM 思路二维版。",
+                  foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
+        ttk.Label(panel, text="均为二维教学实现，不是论文原版的车辆动力学或学习模型。",
                   foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
 
         buttons = ttk.Frame(panel)
@@ -136,7 +138,7 @@ class DeliveryApp:
     def start(self):
         try:
             order = self._entered_order()
-            self.mission.start(order, algorithm="memory", auto_order=self.ordering_var.get() == "auto")
+            self.mission.start(order, algorithm="mgmm_grid", auto_order=self.ordering_var.get() == "auto")
         except ValueError as exc:
             messagebox.showerror("无法开始", str(exc))
         else:
@@ -216,11 +218,11 @@ class DeliveryApp:
             return
         auto_order = self.ordering_var.get() == "auto"
         rows = compare_algorithms(order, self.mission.obstacles, auto_order, count)
-        baseline = [row["baseline"] for row in rows]
-        memory = [row["memory"] for row in rows]
+        baseline = [row["sequential_rrt"] for row in rows]
+        memory = [row["mgmm_grid"] for row in rows]
         report = {
-            "kind": "current_conditions_algorithm_comparison",
-            "note": "Baseline: nearest-neighbor order if automatic, fresh BFS paths. Memory: exact shortest visit order if automatic, cached BFS paths. Repeated runs use the same static map and order; memory carries across runs. Not original MGMM.",
+            "kind": "sequential_rrt_vs_mgmm_grid_demo",
+            "note": "SequentialRRT is a random-tree grid adaptation. MGMM-grid is an independently implemented path-cache and tour analogy, without the paper's trained predictor, guided roadmap, or vehicle dynamics. These are not the original paper implementations. Repeated runs use the same static map and order; memory carries across runs.",
             "map": self.map_var.get(),
             "requested_order": order,
             "ordering": "auto" if auto_order else "fixed",
@@ -237,6 +239,7 @@ class DeliveryApp:
         baseline_distance = sum(item["distance_m"] for item in baseline)
         memory_distance = sum(item["distance_m"] for item in memory)
         baseline_searches = sum(item["path_searches"] for item in baseline)
+        rrt_samples = sum(item["rrt_samples"] for item in baseline)
         memory_searches = sum(item["path_searches"] for item in memory)
         memory_hits = sum(item["memory_hits"] for item in memory)
         explanation = "10 次使用同一地图和订单，路径记忆可跨次复用。" if count > 1 else "两种算法在相同条件下各运行一次。"
@@ -244,9 +247,9 @@ class DeliveryApp:
             "算法对比完成",
             f"地图：{self.map_var.get()}｜配送方式：{policy}\n"
             f"配送点：{' → '.join(order)}｜重复 {count} 次\n{explanation}\n\n"
-            f"普通算法：{' → '.join(first_baseline['order'])} → H\n"
-            f"合计 {baseline_distance:.1f} 米，寻路 {baseline_searches} 次，完成 {sum(r['state'] == 'DONE' for r in baseline)}/{count}\n\n"
-            f"路径记忆：{' → '.join(first_memory['order'])} → H\n"
+            f"SequentialRRT（网格版）：{' → '.join(first_baseline['order'])} → H\n"
+            f"合计 {baseline_distance:.1f} 米，RRT 规划 {baseline_searches} 次、采样 {rrt_samples} 次，完成 {sum(r['state'] == 'DONE' for r in baseline)}/{count}\n\n"
+            f"MGMM 思路二维版：{' → '.join(first_memory['order'])} → H\n"
             f"合计 {memory_distance:.1f} 米，寻路 {memory_searches} 次，复用 {memory_hits} 次，完成 {sum(r['state'] == 'DONE' for r in memory)}/{count}\n\n"
             f"详细记录：\n{path}",
         )

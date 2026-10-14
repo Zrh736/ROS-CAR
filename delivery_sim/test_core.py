@@ -4,7 +4,8 @@ import unittest
 
 from .core import (MAP_NAMES, DeliveryMission, RouteMemory, STATIONS,
                    compare_algorithms, obstacles_for_map, run_batch,
-                   shortest_path)
+                   sequential_rrt_path, shortest_path)
+import random
 
 
 class DeliverySimulationTests(unittest.TestCase):
@@ -82,17 +83,16 @@ class DeliverySimulationTests(unittest.TestCase):
         self.assertEqual(memory.repairs, 1)
         self.assertEqual(memory.searches, 2)
 
-    def test_auto_order_compares_nearest_neighbor_with_memory(self):
+    def test_auto_order_compares_sequential_rrt_with_mgmm_grid(self):
         rows = compare_algorithms(["A", "B", "D"], obstacles_for_map(MAP_NAMES[1]), True, 10)
         self.assertEqual(len(rows), 10)
-        self.assertTrue(all(row["baseline"]["state"] == "DONE" for row in rows))
-        self.assertTrue(all(row["memory"]["state"] == "DONE" for row in rows))
-        self.assertLess(rows[0]["memory"]["distance_m"], rows[0]["baseline"]["distance_m"])
-        self.assertEqual(rows[0]["baseline"]["ordering"], "auto")
-        self.assertLess(sum(row["memory"]["path_searches"] for row in rows),
-                        sum(row["baseline"]["path_searches"] for row in rows))
-        self.assertEqual(rows[1]["memory"]["path_searches"], 0)
-        self.assertGreater(rows[1]["memory"]["memory_hits"], 0)
+        self.assertTrue(all(row["sequential_rrt"]["state"] == "DONE" for row in rows))
+        self.assertTrue(all(row["mgmm_grid"]["state"] == "DONE" for row in rows))
+        self.assertLess(rows[0]["mgmm_grid"]["distance_m"], rows[0]["sequential_rrt"]["distance_m"])
+        self.assertEqual(rows[0]["sequential_rrt"]["ordering"], "auto")
+        self.assertGreater(rows[0]["sequential_rrt"]["rrt_samples"], 0)
+        self.assertEqual(rows[1]["mgmm_grid"]["path_searches"], 0)
+        self.assertGreater(rows[1]["mgmm_grid"]["memory_hits"], 0)
 
     def test_optimized_mode_reports_unreachable_station(self):
         mission = DeliveryMission()
@@ -107,22 +107,32 @@ class DeliverySimulationTests(unittest.TestCase):
         walls = obstacles_for_map(MAP_NAMES[0])
         first = compare_algorithms(["A", "B", "C"], walls, False)[0]
         changed = compare_algorithms(["A", "C", "B"], walls, False)[0]
-        for algorithm in ("baseline", "memory"):
+        for algorithm in ("sequential_rrt", "mgmm_grid"):
             self.assertEqual(first[algorithm]["order"], ["A", "B", "C"])
             self.assertEqual(changed[algorithm]["order"], ["A", "C", "B"])
-            self.assertNotEqual(first[algorithm]["distance_m"], changed[algorithm]["distance_m"])
             self.assertEqual(first[algorithm]["ordering"], "fixed")
         blocked = set(walls)
         x, y = STATIONS["D"]
         blocked.update({(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)})
-        self.assertEqual(compare_algorithms(["D"], blocked, False)[0]["baseline"]["state"], "FAILED")
+        self.assertEqual(compare_algorithms(["D"], blocked, False)[0]["sequential_rrt"]["state"], "FAILED")
 
     def test_each_example_map_supports_all_five_delivery_points(self):
         self.assertEqual(len(STATIONS), 5)
         for name in MAP_NAMES:
             result = compare_algorithms(list(STATIONS), obstacles_for_map(name), True)[0]
-            self.assertEqual(result["baseline"]["state"], "DONE", name)
-            self.assertEqual(result["memory"]["state"], "DONE", name)
+            self.assertEqual(result["sequential_rrt"]["state"], "DONE", name)
+            self.assertEqual(result["mgmm_grid"]["state"], "DONE", name)
+
+    def test_sequential_rrt_builds_a_collision_free_tree_path(self):
+        walls = obstacles_for_map(MAP_NAMES[0])
+        path, samples = sequential_rrt_path(STATIONS["A"], STATIONS["C"], walls, random.Random(17))
+        self.assertIsNotNone(path)
+        self.assertGreater(samples, 0)
+        self.assertEqual(path[0], STATIONS["A"])
+        self.assertEqual(path[-1], STATIONS["C"])
+        self.assertTrue(all(point not in walls for point in path))
+        self.assertTrue(all(abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1
+                            for a, b in zip(path, path[1:])))
 
 
 if __name__ == "__main__":

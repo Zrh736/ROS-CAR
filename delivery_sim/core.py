@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from itertools import permutations
+import random
 
 WIDTH = 25
 HEIGHT = 17
@@ -61,6 +62,45 @@ def shortest_path(start, goal, obstacles):
     return None
 
 
+def sequential_rrt_path(start, goal, obstacles, rng, max_samples=1500):
+    """Grow a random tree one free grid cell at a time toward one goal.
+
+    This is a 2D grid adaptation of sequential RRT, without vehicle dynamics.
+    Return (path, samples); no shortest-path fallback is used on failure.
+    """
+    if start in obstacles or goal in obstacles:
+        return None, 0
+    parents = {start: None}
+    vertices = [start]
+    for sample_count in range(1, max_samples + 1):
+        target = goal if rng.random() < 0.20 else (rng.randrange(WIDTH), rng.randrange(HEIGHT))
+        nearest = min(vertices, key=lambda p: ((p[0] - target[0]) ** 2 + (p[1] - target[1]) ** 2,
+                                               (p[0] - goal[0]) ** 2 + (p[1] - goal[1]) ** 2))
+        dx, dy = target[0] - nearest[0], target[1] - nearest[1]
+        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        rng.shuffle(directions)
+        directions.sort(key=lambda d: -(d[0] * dx + d[1] * dy))
+        next_point = None
+        for sx, sy in directions:
+            candidate = (nearest[0] + sx, nearest[1] + sy)
+            if (0 <= candidate[0] < WIDTH and 0 <= candidate[1] < HEIGHT
+                    and candidate not in obstacles and candidate not in parents):
+                next_point = candidate
+                break
+        if next_point is None:
+            continue
+        parents[next_point] = nearest
+        vertices.append(next_point)
+        if next_point == goal:
+            path = []
+            point = goal
+            while point is not None:
+                path.append(point)
+                point = parents[point]
+            return list(reversed(path)), sample_count
+    return None, max_samples
+
+
 @dataclass
 class RouteMemory:
     """Reuse previously found grid routes after checking them against new walls.
@@ -112,26 +152,18 @@ def optimize_visit_order(start, stations, obstacles, memory):
     return best
 
 
-def nearest_neighbor_order(start, stations, obstacles):
-    """Conventional greedy multi-stop baseline with fresh grid searches."""
+def nearest_neighbor_order(start, stations):
+    """Select the geometrically nearest next goal for sequential RRT."""
     remaining = set(stations)
     order = []
-    searches = 0
     current = start
     while remaining:
-        choices = []
-        for name in sorted(remaining):
-            searches += 1
-            path = shortest_path(current, STATIONS[name], obstacles)
-            if path is not None:
-                choices.append((len(path) - 1, name))
-        if not choices:
-            return None, searches
-        _, name = min(choices)
+        name = min(remaining, key=lambda item: ((current[0] - STATIONS[item][0]) ** 2
+                                                 + (current[1] - STATIONS[item][1]) ** 2, item))
         order.append(name)
         remaining.remove(name)
         current = STATIONS[name]
-    return order, searches
+    return order
 
 
 @dataclass
@@ -150,8 +182,10 @@ class DeliveryMission:
     reason: str = ""
     events: list[str] = field(default_factory=list)
     memory: RouteMemory = field(default_factory=RouteMemory)
-    algorithm: str = "baseline"
+    algorithm: str = "sequential_rrt"
     auto_order: bool = False
+    random_seed: int = 0
+    rrt_samples: int = 0
     requested_order: list[str] = field(default_factory=list)
     path_searches: int = 0
     memory_start_hits: int = 0
@@ -163,11 +197,13 @@ class DeliveryMission:
 
     def _plan(self):
         goal = HOME if self.target == "HOME" else STATIONS[self.target]
-        if self.algorithm == "memory":
+        if self.algorithm == "mgmm_grid":
             path = self.memory.path(self.position, goal, self.obstacles)
         else:
             self.path_searches += 1
-            path = shortest_path(self.position, goal, self.obstacles)
+            path, samples = sequential_rrt_path(self.position, goal, self.obstacles,
+                                                random.Random(self.random_seed + self.path_searches * 1009))
+            self.rrt_samples += samples
         if path is None:
             self.state = "FAILED"
             self.reason = f"前往 {self.target} 的道路被堵"
@@ -178,11 +214,9 @@ class DeliveryMission:
         self._event(f"规划前往 {self.target}：{len(path) - 1} 格")
 
     def _choose_order(self, start, stations):
-        if self.algorithm == "memory":
+        if self.algorithm == "mgmm_grid":
             return optimize_visit_order(start, stations, self.obstacles, self.memory)
-        chosen, searches = nearest_neighbor_order(start, stations, self.obstacles)
-        self.path_searches += searches
-        return chosen
+        return nearest_neighbor_order(start, stations)
 
     def start(self, order, optimize=False, *, algorithm=None, auto_order=None):
         if self.state not in ("IDLE", "DONE", "FAILED", "CANCELED"):
@@ -193,9 +227,9 @@ class DeliveryMission:
         self.position = HOME
         self.state = "MOVING"
         self.requested_order = order.copy()
-        self.algorithm = algorithm or ("memory" if optimize else "baseline")
+        self.algorithm = algorithm or ("mgmm_grid" if optimize else "sequential_rrt")
         self.auto_order = optimize if auto_order is None else auto_order
-        if self.algorithm not in ("memory", "baseline"):
+        if self.algorithm not in ("mgmm_grid", "sequential_rrt"):
             raise ValueError("未知配送算法")
         self.visited = []
         self.target = None
@@ -208,6 +242,7 @@ class DeliveryMission:
         self.memory_start_searches = self.memory.searches
         self.memory_start_repairs = self.memory.repairs
         self.path_searches = 0
+        self.rrt_samples = 0
         self.order = self._choose_order(HOME, order) if self.auto_order else order
         if self.order is None:
             self.order = order
@@ -298,9 +333,10 @@ class DeliveryMission:
             "planner": self.algorithm,
             "ordering": "auto" if self.auto_order else "fixed",
             "path_searches": (self.memory.searches - self.memory_start_searches
-                              if self.algorithm == "memory" else self.path_searches),
-            "memory_hits": self.memory.hits - self.memory_start_hits if self.algorithm == "memory" else 0,
-            "memory_repairs": self.memory.repairs - self.memory_start_repairs if self.algorithm == "memory" else 0,
+                              if self.algorithm == "mgmm_grid" else self.path_searches),
+            "memory_hits": self.memory.hits - self.memory_start_hits if self.algorithm == "mgmm_grid" else 0,
+            "memory_repairs": self.memory.repairs - self.memory_start_repairs if self.algorithm == "mgmm_grid" else 0,
+            "rrt_samples": self.rrt_samples,
             "reason": self.reason, "events": self.events,
         }
 
@@ -339,7 +375,7 @@ def run_batch(count=10):
 def compare_algorithms(order, obstacles, auto_order, count=1):
     """Run both algorithms under identical map, goals and ordering policy.
 
-    Repeated runs reuse memory only in the memory arm. The map stays unchanged,
+    Repeated runs reuse memory only in the MGMM-grid arm. The map stays unchanged,
     so repetitions measure route reuse rather than varying scenarios.
     """
     if count < 1:
@@ -351,9 +387,10 @@ def compare_algorithms(order, obstacles, auto_order, count=1):
     rows = []
     for index in range(count):
         pair = {}
-        for algorithm in ("baseline", "memory"):
+        for algorithm in ("sequential_rrt", "mgmm_grid"):
             mission = DeliveryMission(obstacles=set(obstacles),
-                                      memory=shared_memory if algorithm == "memory" else RouteMemory())
+                                      memory=shared_memory if algorithm == "mgmm_grid" else RouteMemory(),
+                                      random_seed=index)
             mission.start(requested, algorithm=algorithm, auto_order=auto_order)
             steps = 0
             while mission.state in ("MOVING", "WAITING") and steps < 500:
