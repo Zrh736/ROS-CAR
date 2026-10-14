@@ -8,7 +8,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .core import (CELL_METERS, HEIGHT, HOME, STATIONS, WIDTH, DeliveryMission,
+from .core import (CELL_METERS, HEIGHT, HOME, MAP_NAMES, STATIONS, WIDTH,
+                   DeliveryMission, compare_current_order, obstacles_for_map,
                    run_batch, run_comparison)
 
 CELL = 28
@@ -41,9 +42,16 @@ class DeliveryApp:
 
         panel = ttk.Frame(content, padding=(20, 0, 0, 0))
         panel.pack(side="left", fill="both", expand=True)
-        ttk.Label(panel, text="配送顺序（A、B、C）", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(panel, text="示例地图", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+        self.map_var = tk.StringVar(value=MAP_NAMES[0])
+        map_picker = ttk.Combobox(panel, textvariable=self.map_var, values=MAP_NAMES, state="readonly")
+        map_picker.pack(fill="x", pady=(5, 10))
+        map_picker.bind("<<ComboboxSelected>>", self.select_map)
+        ttk.Label(panel, text="配送点（A、B、C、D、E）", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
         self.order_var = tk.StringVar(value="A,B,C")
         ttk.Entry(panel, textvariable=self.order_var).pack(fill="x", pady=(5, 10))
+        ttk.Label(panel, text="自动排序只看选了哪些点；按输入顺序模式才遵守填写顺序。",
+                  foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
         self.planner_var = tk.StringVar(value="memory")
         ttk.Radiobutton(panel, text="路径记忆 + 自动排序（论文思路简化版）",
                         variable=self.planner_var, value="memory").pack(anchor="w")
@@ -54,8 +62,9 @@ class DeliveryApp:
         buttons.pack(fill="x")
         for label, command in (("开始配送", self.start), ("确认取货", self.confirm),
                                ("暂停 / 继续", self.pause), ("取消任务", self.cancel),
-                               ("重置地图", self.reset), ("自动测试 10 次", self.batch),
-                               ("两种方法对比 10 次", self.compare)):
+                               ("重置地图", self.reset), ("当前订单对比", self.compare),
+                               ("内置样例对比 10 次", self.compare_benchmark),
+                               ("内置场景自动测试 10 次", self.batch)):
             ttk.Button(buttons, text=label, command=command).pack(fill="x", pady=2)
 
         ttk.Separator(panel).pack(fill="x", pady=12)
@@ -124,7 +133,7 @@ class DeliveryApp:
 
     def start(self):
         try:
-            order = self.order_var.get().replace("，", ",").split(",")
+            order = self._entered_order()
             self.mission.start(order, optimize=self.planner_var.get() == "memory")
         except ValueError as exc:
             messagebox.showerror("无法开始", str(exc))
@@ -154,13 +163,22 @@ class DeliveryApp:
         self.render()
 
     def reset(self):
-        self.mission = DeliveryMission()
+        self.mission = DeliveryMission(obstacles=obstacles_for_map(self.map_var.get()))
         self.paused = False
         self.last_event_count = 0
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
         self.render()
+
+    def select_map(self, _event=None):
+        self.reset()
+
+    def _entered_order(self):
+        order = [item.strip().upper() for item in self.order_var.get().replace("，", ",").split(",")]
+        if not order or len(set(order)) != len(order) or any(item not in STATIONS for item in order):
+            raise ValueError("请输入不重复的配送点，例如 A,B,C 或 E,D,A")
+        return order
 
     def on_map_click(self, event):
         point = (event.x // CELL, event.y // CELL)
@@ -183,6 +201,36 @@ class DeliveryApp:
         messagebox.showinfo("自动测试完成", f"成功 {report['successes']}/10 次\n记录已保存：\n{path}")
 
     def compare(self):
+        try:
+            order = self._entered_order()
+        except ValueError as exc:
+            messagebox.showerror("无法对比", str(exc))
+            return
+        pair = compare_current_order(order, self.mission.obstacles)
+        report = {
+            "kind": "current_order_comparison",
+            "note": "Same entered order and current grid for both methods; simplified model, not original MGMM.",
+            "map": self.map_var.get(),
+            "requested_order": order,
+            "obstacles": sorted(self.mission.obstacles),
+            "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            **pair,
+        }
+        directory = Path(__file__).resolve().parents[1] / "artifacts" / "delivery_sim"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"current_comparison_{datetime.now():%Y%m%d_%H%M%S}.json"
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        fixed, memory = pair["fixed"], pair["memory_order"]
+        messagebox.showinfo(
+            "当前订单对比",
+            f"地图：{self.map_var.get()}｜输入：{' → '.join(order)}\n"
+            f"按输入顺序：{' → '.join(fixed['order'])} → H，{fixed['distance_m']:.1f} 米（{fixed['state']}）\n"
+            f"自动排序：{' → '.join(memory['order'])} → H，{memory['distance_m']:.1f} 米（{memory['state']}）\n\n"
+            f"寻路计算：{fixed['path_searches']} / {memory['path_searches']} 次；"
+            f"记忆复用：{memory['memory_hits']} 次\n\n详细记录：\n{path}",
+        )
+
+    def compare_benchmark(self):
         rows = run_comparison(10)
         total_fixed = sum(row["fixed"]["distance_m"] for row in rows)
         total_memory = sum(row["memory_order"]["distance_m"] for row in rows)
@@ -198,7 +246,7 @@ class DeliveryApp:
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"comparison_{datetime.now():%Y%m%d_%H%M%S}.json"
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        messagebox.showinfo("对比完成", f"10 次合计路程：\n固定顺序 {total_fixed:.1f} 米\n"
+        messagebox.showinfo("内置样例对比完成", f"预设地图和 A/B/C 的 10 组顺序；不读取输入框。\n10 次合计路程：\n固定顺序 {total_fixed:.1f} 米\n"
                             f"路径记忆 + 排序 {total_memory:.1f} 米\n\n详细记录：\n{path}")
 
 

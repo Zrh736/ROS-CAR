@@ -13,7 +13,9 @@ WIDTH = 25
 HEIGHT = 17
 CELL_METERS = 0.5
 HOME = (2, 2)
-STATIONS = {"A": (21, 2), "B": (21, 14), "C": (3, 14)}
+STATIONS = {"A": (21, 2), "B": (21, 14), "C": (3, 14),
+            "D": (12, 3), "E": (12, 13)}
+MAP_NAMES = ("经典障碍", "仓库通道", "空旷地图")
 
 
 def default_obstacles() -> set[tuple[int, int]]:
@@ -21,6 +23,18 @@ def default_obstacles() -> set[tuple[int, int]]:
     walls |= {(16, y) for y in range(3, 16) if y not in (7, 13)}
     walls |= {(x, 8) for x in range(10, 15) if x != 12}
     return walls
+
+
+def obstacles_for_map(name: str) -> set[tuple[int, int]]:
+    """Return a fresh obstacle set for a built-in example map."""
+    if name == MAP_NAMES[0]:
+        return default_obstacles()
+    if name == MAP_NAMES[1]:
+        return {(x, y) for y in (5, 11) for x in range(2, 23)
+                if x not in (5, 13, 20)}
+    if name == MAP_NAMES[2]:
+        return set()
+    raise ValueError(f"未知地图：{name}")
 
 
 def shortest_path(start, goal, obstacles):
@@ -262,7 +276,7 @@ def run_batch(count=10):
     """Run reproducible normal, dynamic-block, and unreachable-goal scenarios."""
     if count < 1:
         raise ValueError("count must be positive")
-    orders = list(permutations(STATIONS))
+    orders = list(permutations(("A", "B", "C")))
     results = []
     for number in range(count):
         mission = DeliveryMission()
@@ -293,7 +307,7 @@ def run_comparison(count=10):
     """Compare fixed and memory-ordered tours on the same static grid."""
     if count < 1:
         raise ValueError("count must be positive")
-    orders = list(permutations(STATIONS))
+    orders = list(permutations(("A", "B", "C")))
     shared_memory = RouteMemory()
     rows = []
     for index in range(count):
@@ -312,3 +326,23 @@ def run_comparison(count=10):
             pair[label] = mission.result()
         rows.append({"run": index + 1, "requested_order": requested, **pair})
     return rows
+
+
+def compare_current_order(order, obstacles):
+    """Run both methods on the same requested order and current map."""
+    pair = {}
+    for label, optimized in (("fixed", False), ("memory_order", True)):
+        mission = DeliveryMission(obstacles=set(obstacles))
+        mission.start(order, optimize=optimized)
+        steps = 0
+        while mission.state in ("MOVING", "WAITING") and steps < 500:
+            if mission.state == "WAITING":
+                mission.confirm()
+            else:
+                mission.tick()
+            steps += 1
+        if steps >= 500:
+            mission.state = "FAILED"
+            mission.reason = "仿真步数超限"
+        pair[label] = mission.result()
+    return pair

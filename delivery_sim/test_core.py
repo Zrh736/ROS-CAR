@@ -2,7 +2,9 @@
 
 import unittest
 
-from .core import DeliveryMission, RouteMemory, STATIONS, run_batch, run_comparison, shortest_path
+from .core import (MAP_NAMES, DeliveryMission, RouteMemory, STATIONS,
+                   compare_current_order, obstacles_for_map, run_batch,
+                   run_comparison, shortest_path)
 
 
 class DeliverySimulationTests(unittest.TestCase):
@@ -99,6 +101,27 @@ class DeliverySimulationTests(unittest.TestCase):
         self.assertEqual(mission.state, "FAILED")
         self.assertIsNone(mission.target)
         self.assertEqual(mission.visited, [])
+
+    def test_current_comparison_uses_order_and_map(self):
+        walls = obstacles_for_map(MAP_NAMES[0])
+        first = compare_current_order(["A", "B", "C"], walls)
+        changed = compare_current_order(["A", "C", "B"], walls)
+        self.assertEqual(first["fixed"]["order"], ["A", "B", "C"])
+        self.assertEqual(changed["fixed"]["order"], ["A", "C", "B"])
+        self.assertNotEqual(first["fixed"]["distance_m"], changed["fixed"]["distance_m"])
+        self.assertEqual(first["memory_order"]["order"], changed["memory_order"]["order"])
+        self.assertEqual(first["memory_order"]["distance_m"], changed["memory_order"]["distance_m"])
+        blocked = set(walls)
+        x, y = STATIONS["D"]
+        blocked.update({(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)})
+        self.assertEqual(compare_current_order(["D"], blocked)["fixed"]["state"], "FAILED")
+
+    def test_each_example_map_supports_all_five_delivery_points(self):
+        self.assertEqual(len(STATIONS), 5)
+        for name in MAP_NAMES:
+            result = compare_current_order(list(STATIONS), obstacles_for_map(name))
+            self.assertEqual(result["fixed"]["state"], "DONE", name)
+            self.assertEqual(result["memory_order"]["state"], "DONE", name)
 
 
 if __name__ == "__main__":
