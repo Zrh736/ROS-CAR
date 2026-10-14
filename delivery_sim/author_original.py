@@ -1,4 +1,4 @@
-"""Run the original MGMM repository's C++ planners through Ubuntu on WSL.
+"""Run the original MGMM repository's C++ planners in Ubuntu.
 
 This command deliberately does not use the local Tk grid or Python planners.
 The author's scene, instance, prediction data, and compiled Runner are required.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -50,20 +51,25 @@ def parse_runner_output(output: str):
 
 
 def run_author_planners(scene: str, grid: int, instance: int, distro: str,
-                        linux_repo: str, timeout: int):
+                        linux_repo: str, timeout: int, backend: str = "wsl"):
     """Run both original planners on the same author-provided instance."""
-    probe = subprocess.run(["wsl.exe", "--list", "--quiet"], capture_output=True,
-                           text=True, errors="replace", check=False)
-    if probe.returncode != 0:
-        raise RuntimeError("未找到可运行的 WSL Linux 发行版；请先安装 Ubuntu/WSL。")
+    if backend not in ("wsl", "local"):
+        raise ValueError("后端须为 wsl 或 local")
+    if backend == "wsl":
+        probe = subprocess.run(["wsl.exe", "--list", "--quiet"], capture_output=True,
+                               text=True, errors="replace", check=False)
+        if probe.returncode != 0:
+            raise RuntimeError("未找到可运行的 WSL Linux 发行版；可改用 Ubuntu 虚拟机内的 --backend local。")
 
     report = {
         "source": "yuanjielu-64/MGMM_ICRA2025 original C++ Runner",
         "repository": "https://github.com/yuanjielu-64/MGMM_ICRA2025",
         "scene": scene, "grid": grid, "instance": instance,
-        "wsl_distribution": distro, "linux_repository": linux_repo,
+        "backend": backend, "linux_repository": linux_repo,
         "runs": {},
     }
+    if backend == "wsl":
+        report["wsl_distribution"] = distro
     # The shell receives all variable values as positional arguments. Nothing
     # from the CLI is interpolated into the shell program.
     shell_program = (
@@ -79,10 +85,12 @@ def run_author_planners(scene: str, grid: int, instance: int, distro: str,
     for planner in PLANNERS:
         stats_file = f"data/Results/codex_original_{planner}_{scene}_{grid}_{instance}_{stamp}.txt"
         command = runner_command(scene, grid, instance, planner, stats_file)
+        bash_args = ["bash", "-c", shell_program, "author-runner", linux_repo,
+                     instance_file, prediction_file, *command]
+        invocation = (["wsl.exe", "--distribution", distro, "--exec", *bash_args]
+                      if backend == "wsl" else bash_args)
         process = subprocess.run(
-            ["wsl.exe", "--distribution", distro, "--exec", "bash", "-lc",
-             shell_program, "author-runner", linux_repo, instance_file,
-             prediction_file, *command],
+            invocation,
             capture_output=True, text=True, errors="replace", check=False,
             timeout=timeout,
         )
@@ -106,6 +114,8 @@ def main(argv=None):
     parser.add_argument("--scene", choices=SCENES, default="Maze")
     parser.add_argument("--grid", type=int, choices=(2, 3, 4), default=2)
     parser.add_argument("--instance", type=int, default=0)
+    parser.add_argument("--backend", choices=("auto", "wsl", "local"), default="auto",
+                        help="Windows 可用 WSL；Ubuntu 虚拟机内用 local")
     parser.add_argument("--distro", default="Ubuntu-20.04", help="WSL 发行版名称")
     parser.add_argument("--linux-repo", default="MGMM_ICRA2025",
                         help="Ubuntu 内作者仓库的路径，默认为 ~/MGMM_ICRA2025")
@@ -113,9 +123,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not 0 <= args.instance <= 400 or args.timeout < 1:
         parser.error("样例编号须为 0–400，超时须大于 0")
+    backend = ("wsl" if os.name == "nt" else "local") if args.backend == "auto" else args.backend
     try:
         report = run_author_planners(args.scene, args.grid, args.instance,
-                                     args.distro, args.linux_repo, args.timeout)
+                                     args.distro, args.linux_repo, args.timeout, backend)
     except (RuntimeError, ValueError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         print(f"作者原版对比未完成：{exc}", file=sys.stderr)
         return 1

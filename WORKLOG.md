@@ -1683,3 +1683,4 @@
 - 单独浅克隆作者 `yuanjielu-64/MGMM_ICRA2025` 到本机相邻目录，核对到提交 `107a309f787f354ec74e47084008b8b007bc0091`；作者仓库中有 `Sequential` 和 `Dromos` C++ 规划器，README 将 `Dromos` 对应 MGMM。没有把作者源码复制进本仓库。
 - 新增 `delivery_sim.author_original` 独立入口：同一作者 Maze/Random/Curves/Storage 样例分别调用原版 `UseMP Sequential` 与 `UseMP Dromos`，提取原程序状态、时间和路程并保存原始输出及提交号。缺 WSL、编译后的 Runner 或作者数据时直接报错，不调用 Windows Python 网格替代。
 - 本机 WSL 没有 Linux 发行版，无法编译或运行作者 C++ 程序。15 项 Python 测试、语法检查与 diff 空白检查通过；这些检查不代表论文实验复现或原版 C++ 运行通过。现有 Windows 窗口仍为独立的网格演示。
+- 用户说明已有 Ubuntu 虚拟机；本机 VMware 清单列有 Ubuntu 20.04 与 22.04，当前未连接到虚拟机。原版入口新增 `--backend local`，可在 Ubuntu 虚拟机内直接调用作者 `Runner`；Windows 的 WSL 模式保留。独立入口仍需作者程序在虚拟机内编译后实测。

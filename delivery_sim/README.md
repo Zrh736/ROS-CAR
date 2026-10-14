@@ -31,9 +31,9 @@ python -m unittest delivery_sim.test_core
 
 ### 作者原版 C++ 算法（独立实验入口）
 
-要使用论文作者的**原始代码**，运行 `python -m delivery_sim.author_original --scene Maze --grid 2 --instance 0`。它会通过 WSL Ubuntu 调用[作者仓库](https://github.com/yuanjielu-64/MGMM_ICRA2025)编译出来的 `bin/Runner`，在作者提供的**同一个场景样例**上分别使用 `UseMP Sequential` 和 `UseMP Dromos`；后者是作者 README 中 MGMM 的入口。脚本会记录作者仓库提交号、原始程序输出、求解状态、规划时间和路程，保存到 `artifacts/delivery_sim/author_original_*.json`。原版运行失败时直接报错，不退回到本项目的 Python 算法。
+要使用论文作者的**原始代码**，在 Ubuntu 虚拟机内运行 `python3 -m delivery_sim.author_original --backend local --scene Maze --grid 2 --instance 0`；也可以在装有 WSL 的 Windows 上运行 `python -m delivery_sim.author_original --backend wsl --scene Maze --grid 2 --instance 0`。它会调用[作者仓库](https://github.com/yuanjielu-64/MGMM_ICRA2025)编译出来的 `bin/Runner`，在作者提供的**同一个场景样例**上分别使用 `UseMP Sequential` 和 `UseMP Dromos`；后者是作者 README 中 MGMM 的入口。脚本会记录作者仓库提交号、原始程序输出、求解状态、规划时间和路程，保存到 `artifacts/delivery_sim/author_original_*.json`。原版运行失败时直接报错，不退回到本项目的 Python 算法。
 
-运行前需要在 WSL Ubuntu 中把作者仓库克隆到 `~/MGMM_ICRA2025` 并按照其 README 安装依赖、编译，确保 `bin/Runner`、对应的 `data/Instances/`、`data/Obstacles/` 和 `data/PredictLabel/` 文件齐全。可用 `--distro` 指定发行版名称，`--linux-repo` 指定 Ubuntu 内的仓库路径。作者项目使用 C++、OpenGL/GLUT、PNG、LightGBM、Treelite 和 LKH，不能直接运行 Windows `.exe`。当前电脑尚未安装 WSL，因此此入口尚未进行 C++ 实测。
+运行前需要在 Ubuntu 虚拟机或 WSL 中把作者仓库克隆到 `~/MGMM_ICRA2025` 并按照其 README 安装依赖、编译，确保 `bin/Runner`、对应的 `data/Instances/`、`data/Obstacles/` 和 `data/PredictLabel/` 文件齐全。Windows WSL 模式可用 `--distro` 指定发行版名称；两种模式均可用 `--linux-repo` 指定 Ubuntu 内的仓库路径。作者项目使用 C++、OpenGL/GLUT、PNG、LightGBM、Treelite 和 LKH，不能直接运行 Windows `.exe`。当前本机尚未连接到 Ubuntu 虚拟机，此入口尚未进行 C++ 实测。
 
 原版实验使用作者的 Random、Curves、Maze、Storage 场景与目标点，**不会读取本窗口的地图、随机障碍或 A–E 订单**。窗口中的“当前条件对比”仍是本项目的网格演示。若要让作者算法规划窗口里的自定义地图，还需实现地图/目标格式转换，并生成与新场景对应的 MGMM 预测数据；只替换算法名称无法做到等价运行。
 

@@ -35,6 +35,15 @@ class AuthorRunnerTests(unittest.TestCase):
         self.assertIn("./bin/Runner", run.call_args.args[0])
         self.assertEqual(report["runs"]["Dromos"]["metrics"]["distance"], 102.96)
 
+    @patch("delivery_sim.author_original.subprocess.run")
+    def test_ubuntu_vm_runs_locally_without_wsl(self, run):
+        summary = "author-commit\n[solved = 1]\n[TimeSolve = 0.087]\n[SolDistance = 102.96]"
+        run.return_value = CompletedProcess([], 0, summary, "")
+        report = run_author_planners("Maze", 2, 0, "", "MGMM_ICRA2025", 180, "local")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args.args[0][:2], ["bash", "-c"])
+        self.assertEqual(report["backend"], "local")
+
 
 if __name__ == "__main__":
     unittest.main()
