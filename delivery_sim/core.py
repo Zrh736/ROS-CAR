@@ -10,20 +10,29 @@ from dataclasses import dataclass, field
 from itertools import permutations
 import random
 
-WIDTH = 25
-HEIGHT = 17
+WIDTH = 35
+HEIGHT = 25
 CELL_METERS = 0.5
 HOME = (2, 2)
-STATIONS = {"A": (21, 2), "B": (21, 14), "C": (3, 14),
-            "D": (12, 3), "E": (12, 13)}
-MAP_NAMES = ("经典障碍", "仓库通道", "空旷地图")
+STATIONS = {"A": (31, 2), "B": (31, 21), "C": (3, 21),
+            "D": (17, 12), "E": (17, 22)}
+MAP_NAMES = ("经典障碍", "仓库通道", "空旷地图", "迷宫地图", "环形地图")
 
 
 def default_obstacles() -> set[tuple[int, int]]:
-    walls = {(8, y) for y in range(1, 14) if y not in (4, 10)}
-    walls |= {(16, y) for y in range(3, 16) if y not in (7, 13)}
-    walls |= {(x, 8) for x in range(10, 15) if x != 12}
+    walls = {(10, y) for y in range(1, 24) if y not in (5, 6, 17, 18)}
+    walls |= {(24, y) for y in range(1, 24) if y not in (8, 9, 19, 20)}
+    walls |= {(x, 12) for x in range(11, 24) if x not in (16, 17, 18)}
+    walls |= {(17, y) for y in range(3, 11) if y not in (6, 7)}
     return walls
+
+
+def _rectangular_ring(left, top, right, bottom, gates):
+    walls = {(x, top) for x in range(left, right + 1)}
+    walls |= {(x, bottom) for x in range(left, right + 1)}
+    walls |= {(left, y) for y in range(top, bottom + 1)}
+    walls |= {(right, y) for y in range(top, bottom + 1)}
+    return walls - gates
 
 
 def obstacles_for_map(name: str) -> set[tuple[int, int]]:
@@ -31,10 +40,29 @@ def obstacles_for_map(name: str) -> set[tuple[int, int]]:
     if name == MAP_NAMES[0]:
         return default_obstacles()
     if name == MAP_NAMES[1]:
-        return {(x, y) for y in (5, 11) for x in range(2, 23)
-                if x not in (5, 13, 20)}
+        return {(x, y) for y in (6, 12, 18) for x in range(2, 33)
+                if x not in (5, 6, 16, 17, 18, 29, 30)}
     if name == MAP_NAMES[2]:
         return set()
+    if name == MAP_NAMES[3]:
+        gaps = {7: (3, 4, 5), 14: (19, 20, 21),
+                21: (4, 5, 6), 28: (18, 19, 20)}
+        walls = {(x, y) for x, opening in gaps.items() for y in range(1, 24)
+                 if y not in opening}
+        spurs = ((8, 2, 6), (15, 1, 5), (7, 9, 13), (14, 8, 12),
+                 (8, 16, 20), (17, 15, 19), (10, 23, 27), (16, 22, 26),
+                 (8, 30, 33), (15, 29, 32))
+        walls |= {(x, y) for y, left, right in spurs for x in range(left, right)}
+        return walls
+    if name == MAP_NAMES[4]:
+        outer_gates = {(x, 5) for x in (16, 17, 18)}
+        outer_gates |= {(x, 19) for x in (16, 17, 18)}
+        outer_gates |= {(9, y) for y in (11, 12, 13)}
+        outer_gates |= {(25, y) for y in (11, 12, 13)}
+        inner_gates = {(17, 9), (17, 15), (13, 12), (21, 12)}
+        walls = _rectangular_ring(9, 5, 25, 19, outer_gates)
+        walls |= _rectangular_ring(13, 9, 21, 15, inner_gates)
+        return walls
     raise ValueError(f"未知地图：{name}")
 
 

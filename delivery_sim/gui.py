@@ -12,7 +12,7 @@ from .core import (CELL_METERS, HEIGHT, HOME, MAP_NAMES, STATIONS, WIDTH,
                    DeliveryMission, compare_algorithms, obstacles_for_map,
                    run_batch)
 
-CELL = 28
+CELL = 23
 COLORS = {"IDLE": "#526579", "MOVING": "#2176ae", "WAITING": "#bc761a",
           "DONE": "#238247", "FAILED": "#b43f40", "CANCELED": "#667085"}
 
@@ -24,13 +24,13 @@ class DeliveryApp:
         self.paused = False
         self.last_event_count = 0
         root.title("ROS-CAR 多点配送 · Windows 二维仿真")
-        root.minsize(1030, 650)
+        root.minsize(1200, 850)
         root.configure(bg="#f4f6f9")
 
         body = ttk.Frame(root, padding=18)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="多点配送仿真", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(body, text="每格 0.5 米｜点击地图可放置或移除障碍｜此界面不连接小车或 ROS",
+        ttk.Label(body, text="35 × 25 格｜每格 0.5 米｜点击地图可放置或移除障碍｜此界面不连接小车或 ROS",
                   foreground="#526579").pack(anchor="w", pady=(2, 12))
 
         content = ttk.Frame(body)

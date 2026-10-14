@@ -2,7 +2,7 @@
 
 import unittest
 
-from .core import (MAP_NAMES, DeliveryMission, RouteMemory, STATIONS,
+from .core import (HEIGHT, MAP_NAMES, WIDTH, DeliveryMission, RouteMemory, STATIONS,
                    compare_algorithms, obstacles_for_map, run_batch,
                    sequential_rrt_path, shortest_path)
 import random
@@ -117,6 +117,9 @@ class DeliverySimulationTests(unittest.TestCase):
         self.assertEqual(compare_algorithms(["D"], blocked, False)[0]["sequential_rrt"]["state"], "FAILED")
 
     def test_each_example_map_supports_all_five_delivery_points(self):
+        self.assertEqual((WIDTH, HEIGHT), (35, 25))
+        self.assertEqual(len(MAP_NAMES), 5)
+        self.assertGreater(len(obstacles_for_map("迷宫地图")), len(obstacles_for_map("经典障碍")))
         self.assertEqual(len(STATIONS), 5)
         for name in MAP_NAMES:
             result = compare_algorithms(list(STATIONS), obstacles_for_map(name), True)[0]
