@@ -12,7 +12,7 @@ from .core import (CELL_METERS, HEIGHT, HOME, MAP_NAMES, STATIONS, WIDTH,
                    DeliveryMission, compare_algorithms, obstacles_for_map,
                    run_batch)
 
-CELL = 20
+CELL = 18
 COLORS = {"IDLE": "#526579", "MOVING": "#2176ae", "WAITING": "#bc761a",
           "DONE": "#238247", "FAILED": "#b43f40", "CANCELED": "#667085"}
 
@@ -24,62 +24,99 @@ class DeliveryApp:
         self.paused = False
         self.last_event_count = 0
         root.title("ROS-CAR 多点配送 · Windows 二维仿真")
-        root.minsize(1300, 880)
-        root.configure(bg="#f4f6f9")
+        root.minsize(1380, 880)
+        root.configure(bg="#edf3f9")
+        style = ttk.Style(root)
+        style.theme_use("clam")
+        style.configure("App.TFrame", background="#edf3f9")
+        style.configure("Panel.TFrame", background="#ffffff")
+        style.configure("Panel.TLabel", background="#ffffff", foreground="#25364b",
+                        font=("Microsoft YaHei UI", 9))
+        style.configure("Panel.TRadiobutton", background="#ffffff", foreground="#25364b",
+                        font=("Microsoft YaHei UI", 9))
+        style.configure("Panel.TSeparator", background="#dce5ef")
+        style.configure("Action.TButton", background="#e8f0fb", foreground="#174c87",
+                        padding=(8, 3), font=("Microsoft YaHei UI", 9))
+        style.map("Action.TButton", background=[("active", "#d7e7fa")])
+        style.configure("Primary.TButton", background="#2767bd", foreground="#ffffff",
+                        padding=(8, 4), font=("Microsoft YaHei UI", 9, "bold"))
+        style.map("Primary.TButton", background=[("active", "#1c55a1")])
+        style.configure("Danger.TButton", background="#fbeaec", foreground="#a33748",
+                        padding=(8, 3), font=("Microsoft YaHei UI", 9))
 
-        body = ttk.Frame(root, padding=12)
+        header = tk.Frame(root, bg="#18385f", padx=20, pady=10)
+        header.pack(fill="x")
+        tk.Label(header, text="多点配送仿真", bg="#18385f", fg="white",
+                 font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
+        tk.Label(header, text=f"{WIDTH} × {HEIGHT} 格 · 每格 0.5 米 · 点击地图可增删障碍 · 不连接小车或 ROS",
+                 bg="#18385f", fg="#c8dcf5", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+
+        body = ttk.Frame(root, padding=10, style="App.TFrame")
         body.pack(fill="both", expand=True)
-        ttk.Label(body, text="多点配送仿真", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(body, text=f"{WIDTH} × {HEIGHT} 格｜每格 0.5 米｜点击地图可放置或移除障碍｜此界面不连接小车或 ROS",
-                  foreground="#526579").pack(anchor="w", pady=(2, 8))
-
-        content = ttk.Frame(body)
+        content = ttk.Frame(body, style="App.TFrame")
         content.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(content, width=WIDTH * CELL, height=HEIGHT * CELL,
-                                bg="white", highlightthickness=1, highlightbackground="#d5dce5")
-        self.canvas.pack(side="left", anchor="n")
+        map_card = ttk.Frame(content, padding=7, style="Panel.TFrame")
+        map_card.pack(side="left", anchor="n")
+        self.canvas = tk.Canvas(map_card, width=WIDTH * CELL, height=HEIGHT * CELL,
+                                bg="#ffffff", highlightthickness=1, highlightbackground="#cbd8e6")
+        self.canvas.pack(anchor="n")
         self.canvas.bind("<Button-1>", self.on_map_click)
+        legend = tk.Frame(map_card, bg="white", pady=5)
+        legend.pack(fill="x")
+        for color, label in (("#30415b", "障碍"), ("#c8e5fa", "待行路线"),
+                             ("#39ad91", "已行轨迹"), ("#eb8738", "小车")):
+            item = tk.Frame(legend, bg="white")
+            item.pack(side="left", padx=(5, 15))
+            tk.Label(item, text="●", bg="white", fg=color, font=("Arial", 11)).pack(side="left")
+            tk.Label(item, text=label, bg="white", fg="#506176",
+                     font=("Microsoft YaHei UI", 9)).pack(side="left")
 
-        panel = ttk.Frame(content, padding=(20, 0, 0, 0))
+        panel = ttk.Frame(content, padding=(15, 10, 15, 10), style="Panel.TFrame")
         panel.pack(side="left", fill="both", expand=True)
-        ttk.Label(panel, text="示例地图", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(panel, text="任务设置", style="Panel.TLabel",
+                  font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w", pady=(0, 7))
+        ttk.Label(panel, text="示例地图", style="Panel.TLabel").pack(anchor="w")
         self.map_var = tk.StringVar(value=MAP_NAMES[0])
         map_picker = ttk.Combobox(panel, textvariable=self.map_var, values=MAP_NAMES, state="readonly")
-        map_picker.pack(fill="x", pady=(5, 10))
+        map_picker.pack(fill="x", pady=(4, 8))
         map_picker.bind("<<ComboboxSelected>>", self.select_map)
-        ttk.Label(panel, text="配送点（A、B、C、D、E）", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(panel, text="配送点（A、B、C、D、E）", style="Panel.TLabel").pack(anchor="w")
         self.order_var = tk.StringVar(value="A,B,C")
-        ttk.Entry(panel, textvariable=self.order_var).pack(fill="x", pady=(5, 10))
-        ttk.Label(panel, text="自动排序只看选了哪些点；按输入顺序模式才遵守填写顺序。",
-                  foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
+        ttk.Entry(panel, textvariable=self.order_var).pack(fill="x", pady=(4, 7))
+        ttk.Label(panel, text="自动排序只看配送点，不遵守输入顺序。",
+                  style="Panel.TLabel", foreground="#64758b", wraplength=300).pack(anchor="w", pady=(0, 5))
         self.ordering_var = tk.StringVar(value="auto")
         ttk.Radiobutton(panel, text="自动排序",
-                        variable=self.ordering_var, value="auto").pack(anchor="w")
+                        variable=self.ordering_var, value="auto", style="Panel.TRadiobutton").pack(anchor="w")
         ttk.Radiobutton(panel, text="按输入顺序配送",
-                        variable=self.ordering_var, value="fixed").pack(anchor="w", pady=(0, 8))
-        ttk.Label(panel, text="开始配送使用 MGMM 思路二维版；对比会运行 SequentialRRT 网格版和 MGMM 思路二维版。",
-                  foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
-        ttk.Label(panel, text="均为二维教学实现，不是论文原版的车辆动力学或学习模型。",
-                  foreground="#526579", wraplength=290).pack(anchor="w", pady=(0, 6))
+                        variable=self.ordering_var, value="fixed", style="Panel.TRadiobutton").pack(anchor="w", pady=(0, 5))
+        ttk.Label(panel, text="演示用 MGMM 思路版；对比 SequentialRRT / MGMM。均非论文原版。",
+                  style="Panel.TLabel", foreground="#64758b", wraplength=300).pack(anchor="w", pady=(0, 6))
 
-        buttons = ttk.Frame(panel)
+        buttons = ttk.Frame(panel, style="Panel.TFrame")
         buttons.pack(fill="x")
         for label, command in (("开始配送", self.start), ("确认取货", self.confirm),
                                ("暂停 / 继续", self.pause), ("取消任务", self.cancel),
                                ("重置地图", self.reset), ("当前条件对比 1 次", self.compare),
                                ("当前条件对比 10 次", self.compare_benchmark),
                                ("内置场景自动测试 10 次", self.batch)):
-            ttk.Button(buttons, text=label, command=command).pack(fill="x", pady=1)
+            button_style = "Primary.TButton" if label == "开始配送" else "Danger.TButton" if label == "取消任务" else "Action.TButton"
+            ttk.Button(buttons, text=label, command=command, style=button_style).pack(fill="x", pady=1)
 
-        ttk.Separator(panel).pack(fill="x", pady=8)
+        ttk.Separator(panel, style="Panel.TSeparator").pack(fill="x", pady=7)
         self.state_var = tk.StringVar()
         self.metrics_var = tk.StringVar()
-        ttk.Label(panel, textvariable=self.state_var, font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w")
-        ttk.Label(panel, textvariable=self.metrics_var, justify="left").pack(anchor="w", pady=(5, 12))
-        ttk.Label(panel, text="任务记录", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
-        self.log = tk.Text(panel, width=34, height=5, state="disabled", wrap="word",
-                           font=("Consolas", 9), bg="#f9fbfd")
-        self.log.pack(fill="both", expand=True, pady=(5, 0))
+        self.state_label = ttk.Label(panel, textvariable=self.state_var, style="Panel.TLabel",
+                                     font=("Microsoft YaHei UI", 11, "bold"))
+        self.state_label.pack(anchor="w")
+        ttk.Label(panel, textvariable=self.metrics_var, justify="left",
+                  style="Panel.TLabel").pack(anchor="w", pady=(4, 8))
+        ttk.Label(panel, text="任务记录", style="Panel.TLabel",
+                  font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+        self.log = tk.Text(panel, width=34, height=4, state="disabled", wrap="word",
+                           font=("Consolas", 9), bg="#f4f8fc", fg="#34445c",
+                           relief="flat", padx=6, pady=5)
+        self.log.pack(fill="both", expand=True, pady=(4, 0))
         self.render()
         root.after(180, self.loop)
 
@@ -101,22 +138,31 @@ class DeliveryApp:
         for y in range(HEIGHT):
             for x in range(WIDTH):
                 point = (x, y)
-                color = "#2d3748" if point in obstacles else "#cce6f5" if point in route else "#ffffff"
+                color = "#30415b" if point in obstacles else "#c8e5fa" if point in route else "#fbfdff"
                 self.canvas.create_rectangle(x * CELL, y * CELL, (x + 1) * CELL,
-                                             (y + 1) * CELL, fill=color, outline="#e6ebf0")
+                                             (y + 1) * CELL, fill=color, outline="#e6ecf4")
+        if len(self.mission.trajectory) > 1:
+            coords = [coordinate for x, y in self.mission.trajectory
+                      for coordinate in (x * CELL + CELL / 2, y * CELL + CELL / 2)]
+            self.canvas.create_line(*coords, fill="#39ad91", width=3)
+        if len(self.mission.path) > 1:
+            coords = [coordinate for x, y in self.mission.path
+                      for coordinate in (x * CELL + CELL / 2, y * CELL + CELL / 2)]
+            self.canvas.create_line(*coords, fill="#4b9ed4", width=2, dash=(4, 3))
         for name, point in (("H", HOME), *STATIONS.items()):
             x, y = point
-            fill = "#3e6289" if name == "H" else "#238247" if name in self.mission.visited else "#8d56b6"
-            self.canvas.create_oval(x * CELL + 2, y * CELL + 2, (x + 1) * CELL - 2,
-                                    (y + 1) * CELL - 2, fill=fill, outline="")
+            fill = "#315e94" if name == "H" else "#2ca579" if name in self.mission.visited else "#8b5ac4"
+            self.canvas.create_oval(x * CELL + 1, y * CELL + 1, (x + 1) * CELL - 1,
+                                    (y + 1) * CELL - 1, fill=fill, outline="#ffffff", width=1)
             self.canvas.create_text(x * CELL + CELL / 2, y * CELL + CELL / 2,
-                                    text=name, fill="white", font=("Arial", 10, "bold"))
+                                    text=name, fill="white", font=("Arial", 9, "bold"))
         x, y = self.mission.position
-        self.canvas.create_oval(x * CELL + 5, y * CELL + 5, (x + 1) * CELL - 5,
-                                (y + 1) * CELL - 5, fill="#ed7a28", outline="#8d410d", width=2)
+        self.canvas.create_oval(x * CELL + 3, y * CELL + 3, (x + 1) * CELL - 3,
+                                (y + 1) * CELL - 3, fill="#eb8738", outline="#9a4f17", width=2)
         state = self.mission.state
         suffix = "（已暂停）" if self.paused and state == "MOVING" else ""
         self.state_var.set(f"状态：{state}{suffix}    目标：{self.mission.target or '无'}")
+        self.state_label.configure(foreground=COLORS[state])
         order = " → ".join(self.mission.order) if self.mission.order else "尚未开始"
         counts = self.mission.result()
         self.metrics_var.set(
@@ -130,9 +176,9 @@ class DeliveryApp:
         self._append_events()
 
     def loop(self):
-        if not self.paused:
+        if not self.paused and self.mission.state == "MOVING":
             self.mission.tick()
-        self.render()
+            self.render()
         self.root.after(180, self.loop)
 
     def start(self):

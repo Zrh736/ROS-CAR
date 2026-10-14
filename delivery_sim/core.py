@@ -10,20 +10,23 @@ from dataclasses import dataclass, field
 from itertools import permutations
 import random
 
-WIDTH = 45
-HEIGHT = 33
+WIDTH = 55
+HEIGHT = 39
 CELL_METERS = 0.5
-HOME = (2, 2)
-STATIONS = {"A": (41, 2), "B": (41, 29), "C": (3, 29),
-            "D": (22, 16), "E": (22, 30)}
+HOME = (3, 3)
+STATIONS = {"A": (51, 3), "B": (51, 35), "C": (3, 35),
+            "D": (27, 19), "E": (27, 35)}
 MAP_NAMES = ("经典障碍", "仓库通道", "空旷地图", "迷宫地图", "环形地图")
 
 
 def default_obstacles() -> set[tuple[int, int]]:
-    walls = {(12, y) for y in range(1, 32) if y not in (7, 8, 23, 24)}
-    walls |= {(32, y) for y in range(1, 32) if y not in (10, 11, 26, 27)}
-    walls |= {(x, 16) for x in range(13, 32) if x not in (21, 22, 23)}
-    walls |= {(22, y) for y in range(4, 15) if y not in (8, 9)}
+    walls = {(15, y) for y in range(1, 38) if y not in (8, 9, 10, 27, 28, 29)}
+    walls |= {(39, y) for y in range(1, 38) if y not in (12, 13, 14, 30, 31, 32)}
+    walls |= {(x, 19) for x in range(16, 39) if x not in (26, 27, 28)}
+    walls |= {(27, y) for y in range(5, 18) if y not in (10, 11)}
+    walls |= {(x, 10) for x in range(2, 13) if x not in (6, 7)}
+    walls |= {(x, 28) for x in range(42, 53) if x not in (47, 48)}
+    walls |= {(x, 30) for x in range(18, 26) if x not in (21, 22)}
     return walls
 
 
@@ -40,28 +43,33 @@ def obstacles_for_map(name: str) -> set[tuple[int, int]]:
     if name == MAP_NAMES[0]:
         return default_obstacles()
     if name == MAP_NAMES[1]:
-        return {(x, y) for y in (8, 16, 24) for x in range(2, 43)
-                if x not in (6, 7, 21, 22, 23, 38, 39)}
+        walls = {(x, y) for y in (9, 19, 29) for x in range(2, 53)
+                 if x not in (7, 8, 9, 26, 27, 28, 46, 47, 48)}
+        walls |= {(x, y) for x in (13, 21, 35, 43) for y in (*range(3, 8), *range(12, 18),
+                                                               *range(22, 28), *range(32, 37))}
+        return walls
     if name == MAP_NAMES[2]:
         return set()
     if name == MAP_NAMES[3]:
-        gaps = {9: (4, 5, 6, 7), 18: (24, 25, 26, 27),
-                27: (5, 6, 7, 8), 36: (23, 24, 25, 26)}
-        walls = {(x, y) for x, opening in gaps.items() for y in range(1, 32)
+        gaps = {11: (5, 6, 7, 8, 9), 22: (29, 30, 31, 32, 33),
+                33: (6, 7, 8, 9, 10), 44: (28, 29, 30, 31, 32)}
+        walls = {(x, y) for x, opening in gaps.items() for y in range(1, 38)
                  if y not in opening}
-        spurs = ((10, 2, 8), (20, 1, 7), (9, 11, 17), (19, 10, 16),
-                 (10, 20, 26), (23, 19, 25), (12, 29, 35), (22, 28, 34),
-                 (10, 39, 43), (20, 38, 42))
+        spurs = ((12, 2, 10), (24, 1, 8), (11, 13, 21), (23, 12, 20),
+                 (12, 25, 32), (27, 24, 31), (14, 35, 43), (25, 34, 42),
+                 (12, 47, 53), (24, 46, 52), (33, 3, 9), (34, 25, 31))
         walls |= {(x, y) for y, left, right in spurs for x in range(left, right)}
         return walls
     if name == MAP_NAMES[4]:
-        outer_gates = {(x, 6) for x in (21, 22, 23)}
-        outer_gates |= {(x, 26) for x in (21, 22, 23)}
-        outer_gates |= {(11, y) for y in (15, 16, 17)}
-        outer_gates |= {(33, y) for y in (15, 16, 17)}
-        inner_gates = {(22, 11), (22, 21), (17, 16), (27, 16)}
-        walls = _rectangular_ring(11, 6, 33, 26, outer_gates)
-        walls |= _rectangular_ring(17, 11, 27, 21, inner_gates)
+        outer_gates = {(x, 7) for x in (26, 27, 28)}
+        outer_gates |= {(x, 31) for x in (26, 27, 28)}
+        outer_gates |= {(13, y) for y in (18, 19, 20)}
+        outer_gates |= {(41, y) for y in (18, 19, 20)}
+        inner_gates = {(27, 13), (27, 25), (20, 19), (34, 19)}
+        center_gates = {(27, 16), (27, 22), (24, 19), (30, 19)}
+        walls = _rectangular_ring(13, 7, 41, 31, outer_gates)
+        walls |= _rectangular_ring(20, 13, 34, 25, inner_gates)
+        walls |= _rectangular_ring(24, 16, 30, 22, center_gates)
         return walls
     raise ValueError(f"未知地图：{name}")
 
@@ -90,7 +98,7 @@ def shortest_path(start, goal, obstacles):
     return None
 
 
-def sequential_rrt_path(start, goal, obstacles, rng, max_samples=1500):
+def sequential_rrt_path(start, goal, obstacles, rng, max_samples=3000):
     """Grow a random tree one free grid cell at a time toward one goal.
 
     This is a 2D grid adaptation of sequential RRT, without vehicle dynamics.
